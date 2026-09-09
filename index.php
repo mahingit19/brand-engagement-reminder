@@ -147,6 +147,30 @@ $linkStmt = $pdo->prepare("SELECT platform, url FROM social_links WHERE brand_id
     <?php endif; ?>
 </main>
 
+<div id="popupModal" class="modal-overlay">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3>⚠️ ব্রাউজারে Pop-up ব্লক করা আছে</h3>
+            <button type="button" class="close-modal" id="closePopupModal">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p>ব্রাউজারের ডিফল্ট সিকিউরিটির কারণে ১টি ক্লিকে একাধিক ট্যাব ওপেন হতে পারছে না (শুধুমাত্র ১ম ট্যাবটি খুলে বাকিগুলো ব্লক হয়েছে)।</p>
+            <div class="popup-steps">
+                <strong>সব লিঙ্ক একসাথে খুলতে মাত্র ১ বার এই কাজটি করুন:</strong>
+                <ol>
+                    <li>আপনার ব্রাউজারের উপরের <strong>Address Bar (URL bar)</strong>-এর ডানপাশে <strong>Pop-up blocked (🚫)</strong> আইকনটিতে ক্লিক করুন।</li>
+                    <li><strong>"Always allow pop-ups and redirects from http://localhost..."</strong> সিলেক্ট করুন।</li>
+                    <li><strong>"Done"</strong> বাটনে ক্লিক করুন।</li>
+                </ol>
+            </div>
+            <p class="muted" style="margin-top:12px;font-size:13px;">💡 এটি ব্রাউজারের ১-বারের সেটিং। এরপর থেকে Open All বা নোটিফিকেশনে ক্লিক করলেই সব লিঙ্ক একসাথে খুলে যাবে।</p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-primary" id="popupModalOk">ঠিক আছে, বুঝেছি</button>
+        </div>
+    </div>
+</div>
+
 <div id="toast" class="toast" role="status"></div>
 <script src="assets/app.js?v=<?= filemtime(__DIR__ . '/assets/app.js') ?>"></script>
 </body>

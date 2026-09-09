@@ -22,12 +22,49 @@
     return res.json();
   };
 
+  const openLinksList = (urls) => {
+    if (!Array.isArray(urls) || urls.length === 0) return;
+
+    let blockedCount = 0;
+    urls.forEach((url) => {
+      try {
+        const win = window.open(url, '_blank');
+        if (!win || win.closed || typeof win.closed === 'undefined') {
+          blockedCount++;
+        }
+      } catch (err) {
+        blockedCount++;
+      }
+    });
+
+    if (blockedCount > 0) {
+      const modal = document.getElementById('popupModal');
+      if (modal) {
+        modal.classList.add('show');
+      } else {
+        showToast('⚠️ Pop-up blocked! ব্রাউজারের URL বার থেকে "Always allow pop-ups" অন করুন।');
+      }
+    }
+  };
+
+  const popupModal = document.getElementById('popupModal');
+  const closePopupModal = document.getElementById('closePopupModal');
+  const popupModalOk = document.getElementById('popupModalOk');
+  if (popupModal) {
+    const hideModal = () => popupModal.classList.remove('show');
+    if (closePopupModal) closePopupModal.addEventListener('click', hideModal);
+    if (popupModalOk) popupModalOk.addEventListener('click', hideModal);
+    popupModal.addEventListener('click', (e) => {
+      if (e.target === popupModal) hideModal();
+    });
+  }
+
   document.addEventListener('click', async (e) => {
     const openAllCard = e.target.closest('.open-all-card-links');
     if (openAllCard) {
       try {
         const urls = JSON.parse(openAllCard.dataset.urls || '[]');
-        urls.forEach(url => window.open(url, '_blank', 'noopener'));
+        openLinksList(urls);
       } catch (err) {
         console.error(err);
       }
@@ -130,11 +167,9 @@
         notification.onclick = () => {
           window.focus();
           if (Array.isArray(due.links) && due.links.length > 0) {
-            due.links.forEach((url) => {
-              window.open(url, '_blank', 'noopener');
-            });
+            openLinksList(due.links);
           } else if (due.open_url) {
-            window.open(due.open_url, '_blank', 'noopener');
+            openLinksList([due.open_url]);
           }
           const card = document.getElementById(`task-${due.id}`);
           if (card) card.scrollIntoView({behavior:'smooth', block:'center'});
