@@ -57,6 +57,56 @@
     }
   });
 
+  const searchInput = document.getElementById('dashboardSearch');
+  const emptySearchState = document.getElementById('searchEmptyState');
+
+  if (searchInput) {
+    const doFilter = () => {
+      const q = (searchInput.value || '').trim().toLowerCase();
+      const cards = document.querySelectorAll('.task-card');
+      let visibleCount = 0;
+
+      cards.forEach((card) => {
+        const brandName = (card.getAttribute('data-name') || card.querySelector('h3')?.textContent || '').toLowerCase().trim();
+        const match = !q || brandName.includes(q);
+
+        if (match) {
+          card.classList.remove('is-hidden');
+          card.style.display = '';
+          visibleCount++;
+        } else {
+          card.classList.add('is-hidden');
+          card.style.display = 'none';
+        }
+      });
+
+      if (emptySearchState) {
+        emptySearchState.style.display = (visibleCount === 0 && q) ? 'block' : 'none';
+      }
+    };
+
+    try {
+      const savedQuery = sessionStorage.getItem('dashboard_search') || '';
+      if (savedQuery) {
+        searchInput.value = savedQuery;
+        doFilter();
+      }
+    } catch (err) {}
+
+    ['input', 'keyup', 'change', 'search'].forEach((evt) => {
+      searchInput.addEventListener(evt, () => {
+        try {
+          sessionStorage.setItem('dashboard_search', searchInput.value);
+        } catch (err) {}
+        doFilter();
+      });
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') e.preventDefault();
+    });
+  }
+
   const pollSeconds = parseInt(document.body.dataset.pollSeconds || '60', 10);
   let lastNotifiedTask = null;
 

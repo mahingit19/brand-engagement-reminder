@@ -6,11 +6,12 @@ $settings = getSettings($pdo);
 
 $summaryStmt = $pdo->prepare("SELECT
     COUNT(*) AS total,
-    SUM(status = 'completed') AS completed,
-    SUM(status = 'pending') AS pending,
-    SUM(status = 'skipped') AS skipped
-    FROM daily_engagements
-    WHERE engagement_date = :today");
+    COALESCE(SUM(d.status = 'completed'), 0) AS completed,
+    COALESCE(SUM(d.status = 'pending'), 0) AS pending,
+    COALESCE(SUM(d.status = 'skipped'), 0) AS skipped
+    FROM daily_engagements d
+    INNER JOIN brands b ON b.id = d.brand_id
+    WHERE d.engagement_date = :today AND b.status = 1");
 $summaryStmt->execute(['today' => today()]);
 $summary = $summaryStmt->fetch();
 
@@ -30,7 +31,7 @@ $linkStmt = $pdo->prepare("SELECT platform, url FROM social_links WHERE brand_id
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Brand Engagement Reminder</title>
-    <link rel="stylesheet" href="assets/app.css">
+    <link rel="stylesheet" href="assets/app.css?v=<?= filemtime(__DIR__ . '/assets/app.css') ?>">
 </head>
 <body data-poll-seconds="<?= (int)$settings['browser_poll_seconds'] ?>">
 <header class="topbar">
@@ -65,6 +66,9 @@ $linkStmt = $pdo->prepare("SELECT platform, url FROM social_links WHERE brand_id
             <h2>Today's Engagement Queue</h2>
             <p>Open a post/page, interact manually, then mark the action here.</p>
         </div>
+        <div class="search-box">
+            <input type="search" id="dashboardSearch" placeholder="🔍 Search brands..." autocomplete="off">
+        </div>
     </section>
 
     <?php if (!$tasks): ?>
@@ -74,6 +78,10 @@ $linkStmt = $pdo->prepare("SELECT platform, url FROM social_links WHERE brand_id
             <a class="btn btn-primary" href="brands.php">Add Brand</a>
         </div>
     <?php else: ?>
+        <div id="searchEmptyState" class="empty-state" style="display:none;margin-bottom:16px;">
+            <h3>No matching brands found</h3>
+            <p>Try searching with another keyword.</p>
+        </div>
         <div class="task-grid">
         <?php foreach ($tasks as $task):
             $linkStmt->execute(['brand_id' => $task['brand_id']]);
@@ -90,7 +98,7 @@ $linkStmt = $pdo->prepare("SELECT platform, url FROM social_links WHERE brand_id
                 }
             }
         ?>
-            <article class="task-card <?= $isDone ? 'done' : '' ?>" id="task-<?= (int)$task['id'] ?>">
+            <article class="task-card <?= $isDone ? 'done' : '' ?>" id="task-<?= (int)$task['id'] ?>" data-name="<?= e(mb_strtolower($task['name'])) ?>">
                 <div class="task-title-row">
                     <div>
                         <span class="status-pill status-<?= e($task['status']) ?>"><?= e(ucfirst($task['status'])) ?></span>
@@ -140,6 +148,6 @@ $linkStmt = $pdo->prepare("SELECT platform, url FROM social_links WHERE brand_id
 </main>
 
 <div id="toast" class="toast" role="status"></div>
-<script src="assets/app.js"></script>
+<script src="assets/app.js?v=<?= filemtime(__DIR__ . '/assets/app.js') ?>"></script>
 </body>
 </html>
