@@ -79,6 +79,16 @@ $linkStmt = $pdo->prepare("SELECT platform, url FROM social_links WHERE brand_id
             $linkStmt->execute(['brand_id' => $task['brand_id']]);
             $links = $linkStmt->fetchAll();
             $isDone = $task['status'] === 'completed';
+
+            $allCardLinks = [];
+            if (!empty($task['latest_post_url'])) {
+                $allCardLinks[] = $task['latest_post_url'];
+            }
+            foreach ($links as $link) {
+                if (!empty($link['url']) && !in_array($link['url'], $allCardLinks, true)) {
+                    $allCardLinks[] = $link['url'];
+                }
+            }
         ?>
             <article class="task-card <?= $isDone ? 'done' : '' ?>" id="task-<?= (int)$task['id'] ?>">
                 <div class="task-title-row">
@@ -94,6 +104,9 @@ $linkStmt = $pdo->prepare("SELECT platform, url FROM social_links WHERE brand_id
                 <?php if ($task['notes']): ?><p class="muted"><?= e($task['notes']) ?></p><?php endif; ?>
 
                 <div class="links">
+                    <?php if (count($allCardLinks) > 1): ?>
+                        <button type="button" class="link-chip open-all-card-links" data-urls="<?= e(json_encode($allCardLinks)) ?>" style="cursor:pointer;background:#eef2ff;border-color:#c7d7fe;color:#1e40af;font-weight:600;">⚡ Open All (<?= count($allCardLinks) ?>) ↗</button>
+                    <?php endif; ?>
                     <?php if ($task['latest_post_url']): ?>
                         <a class="link-chip primary" href="<?= e($task['latest_post_url']) ?>" target="_blank" rel="noopener">Open Latest Post ↗</a>
                     <?php endif; ?>

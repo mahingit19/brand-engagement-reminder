@@ -44,5 +44,24 @@ $pdo->beginTransaction();
 $pdo->prepare("UPDATE daily_engagements SET last_reminded_at=NOW() WHERE id=:id")->execute(['id'=>$due['id']]);
 $pdo->exec("UPDATE settings SET last_global_reminder_at=NOW() WHERE id=1");
 $pdo->commit();
-$due['open_url'] = $due['latest_post_url'] ?: $due['first_social_url'];
+
+// Fetch all active social links for this brand
+$linkStmt = $pdo->prepare("SELECT url FROM social_links WHERE brand_id = :brand_id AND status = 1 ORDER BY id ASC");
+$linkStmt->execute(['brand_id' => $due['brand_id']]);
+$socialUrls = $linkStmt->fetchAll(PDO::FETCH_COLUMN);
+
+$links = [];
+if (!empty($due['latest_post_url'])) {
+    $links[] = $due['latest_post_url'];
+}
+foreach ($socialUrls as $url) {
+    $url = trim((string)$url);
+    if ($url !== '' && !in_array($url, $links, true)) {
+        $links[] = $url;
+    }
+}
+
+$due['links'] = $links;
+$due['open_url'] = $links[0] ?? ($due['latest_post_url'] ?: $due['first_social_url']);
 echo json_encode(['ok'=>true, 'due'=>$due]);
+

@@ -23,6 +23,17 @@
   };
 
   document.addEventListener('click', async (e) => {
+    const openAllCard = e.target.closest('.open-all-card-links');
+    if (openAllCard) {
+      try {
+        const urls = JSON.parse(openAllCard.dataset.urls || '[]');
+        urls.forEach(url => window.open(url, '_blank', 'noopener'));
+      } catch (err) {
+        console.error(err);
+      }
+      return;
+    }
+
     const toggle = e.target.closest('.action-toggle');
     const markAll = e.target.closest('.mark-all');
     const snooze = e.target.closest('.snooze');
@@ -68,7 +79,13 @@
         });
         notification.onclick = () => {
           window.focus();
-          if (due.open_url) window.open(due.open_url, '_blank', 'noopener');
+          if (Array.isArray(due.links) && due.links.length > 0) {
+            due.links.forEach((url) => {
+              window.open(url, '_blank', 'noopener');
+            });
+          } else if (due.open_url) {
+            window.open(due.open_url, '_blank', 'noopener');
+          }
           const card = document.getElementById(`task-${due.id}`);
           if (card) card.scrollIntoView({behavior:'smooth', block:'center'});
           notification.close();
