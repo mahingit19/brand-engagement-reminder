@@ -24,6 +24,97 @@ $tasksStmt->execute(['today' => today()]);
 $tasks = $tasksStmt->fetchAll();
 
 $linkStmt = $pdo->prepare("SELECT platform, url FROM social_links WHERE brand_id = :brand_id AND status = 1 ORDER BY id ASC");
+
+// --- LAST REMINDER CALCULATION ---
+$lastRemindedStmt = $pdo->prepare("SELECT d.last_reminded_at, b.name
+    FROM daily_engagements d
+    INNER JOIN brands b ON b.id = d.brand_id
+    WHERE d.engagement_date = :today AND b.status = 1 AND d.last_reminded_at IS NOT NULL
+    ORDER BY d.last_reminded_at DESC
+    LIMIT 1");
+$lastRemindedStmt->execute(['today' => today()]);
+$lastReminded = $lastRemindedStmt->fetch();
+
+if ($lastReminded) {
+    $lastRemindedTs = strtotime($lastReminded['last_reminded_at']);
+    $lastReminderTitle = date('h:i A', $lastRemindedTs) . ' · ' . $lastReminded['name'];
+    $minsAgo = max(0, round((time() - $lastRemindedTs) / 60));
+    $lastReminderSubtitle = ($minsAgo === 0 ? 'Just now' : ($minsAgo < 60 ? $minsAgo . ' min ago' : round($minsAgo / 60, 1) . ' hr ago'));
+} elseif (!empty($settings['last_global_reminder_at']) && date('Y-m-d', strtotime($settings['last_global_reminder_at'])) === today()) {
+    $lastRemindedTs = strtotime($settings['last_global_reminder_at']);
+    $lastReminderTitle = date('h:i A', $lastRemindedTs);
+    $lastReminderSubtitle = 'Earlier today';
+} else {
+    $lastReminderTitle = 'None yet today';
+    $lastReminderSubtitle = 'Waiting for first reminder';
+}
+
+// --- NEXT REMINDER CALCULATION ---
+$nowTime = date('H:i:s');
+$windowStart = $settings['window_start'];
+$windowEnd = $settings['window_end'];
+$intervalMinutes = (int)$settings['reminder_interval_minutes'];
+$pendingCount = (int)$summary['pending'];
+
+$nextTargetTimestamp = null;
+$nextStatus = 'active';
+
+if ($pendingCount === 0) {
+    if ((int)$summary['total'] === 0) {
+        $nextReminderTitle = 'No active brands';
+        $nextReminderSubtitle = 'Add brands to start reminders';
+    } else {
+        $nextReminderTitle = 'All completed! 🎉';
+        $nextReminderSubtitle = 'All pending tasks done for today';
+    }
+    $nextStatus = 'completed';
+} elseif ($nowTime < $windowStart) {
+    $nextTargetTimestamp = strtotime(today() . ' ' . $windowStart);
+    $nextReminderTitle = date('h:i A', $nextTargetTimestamp);
+    $nextReminderSubtitle = 'Window starts at ' . date('h:i A', $nextTargetTimestamp);
+    $nextStatus = 'window_pending';
+} elseif ($nowTime > $windowEnd) {
+    $nextTargetTimestamp = strtotime('+1 day ' . $windowStart);
+    $nextReminderTitle = 'Tomorrow ' . date('h:i A', strtotime($windowStart));
+    $nextReminderSubtitle = 'Today\'s window closed at ' . date('h:i A', strtotime($windowEnd));
+    $nextStatus = 'window_closed';
+} else {
+    $snoozeCheckStmt = $pdo->prepare("SELECT
+        COUNT(*) AS total_pending,
+        SUM(d.snoozed_until IS NOT NULL AND d.snoozed_until > NOW()) AS snoozed_count,
+        MIN(CASE WHEN d.snoozed_until IS NOT NULL AND d.snoozed_until > NOW() THEN d.snoozed_until END) AS earliest_snooze
+        FROM daily_engagements d
+        INNER JOIN brands b ON b.id = d.brand_id
+        WHERE d.engagement_date = :today AND b.status = 1 AND d.status = 'pending'");
+    $snoozeCheckStmt->execute(['today' => today()]);
+    $snoozeInfo = $snoozeCheckStmt->fetch();
+
+    $allSnoozed = ($snoozeInfo && $snoozeInfo['total_pending'] > 0 && $snoozeInfo['total_pending'] == $snoozeInfo['snoozed_count']);
+    $lastGlobalTs = !empty($settings['last_global_reminder_at']) ? strtotime($settings['last_global_reminder_at']) : 0;
+    $intervalSec = $intervalMinutes * 60;
+    $nextAllowed = $lastGlobalTs ? ($lastGlobalTs + $intervalSec) : time();
+
+    if ($allSnoozed && !empty($snoozeInfo['earliest_snooze'])) {
+        $snoozeEndTs = strtotime($snoozeInfo['earliest_snooze']);
+        $nextTargetTimestamp = max($nextAllowed, $snoozeEndTs);
+        $nextReminderTitle = date('h:i A', $nextTargetTimestamp);
+        $nextReminderSubtitle = 'All pending brands snoozed';
+        $nextStatus = 'snoozed';
+    } else {
+        if (time() >= $nextAllowed) {
+            $nextTargetTimestamp = time();
+            $nextReminderTitle = 'Due Now ⚡';
+            $nextReminderSubtitle = 'Queue ready for engagement';
+            $nextStatus = 'due';
+        } else {
+            $nextTargetTimestamp = $nextAllowed;
+            $remainingMins = max(1, ceil(($nextAllowed - time()) / 60));
+            $nextReminderTitle = 'In ' . $remainingMins . ' min (' . date('h:i A', $nextAllowed) . ')';
+            $nextReminderSubtitle = 'Every ' . $intervalMinutes . ' min interval';
+            $nextStatus = 'countdown';
+        }
+    }
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -52,6 +143,25 @@ $linkStmt = $pdo->prepare("SELECT platform, url FROM social_links WHERE brand_id
             <strong>Browser notifications:</strong> Keep this tab open during office hours. Click Enable Notifications once.
         </div>
         <button id="enableNotifications" class="btn btn-dark">Enable Notifications</button>
+    </section>
+
+    <section class="reminder-cards-grid">
+        <div class="reminder-card last">
+            <div class="reminder-card-icon">🕒</div>
+            <div class="reminder-card-content">
+                <span class="reminder-card-label">Last Reminder</span>
+                <strong class="reminder-card-title" id="lastReminderValue"><?= e($lastReminderTitle) ?></strong>
+                <span class="reminder-card-sub" id="lastReminderSub"><?= e($lastReminderSubtitle) ?></span>
+            </div>
+        </div>
+        <div class="reminder-card next" id="nextReminderCard" data-target-ts="<?= (int)($nextTargetTimestamp ?? 0) ?>" data-status="<?= e($nextStatus) ?>">
+            <div class="reminder-card-icon">⏳</div>
+            <div class="reminder-card-content">
+                <span class="reminder-card-label">Next Reminder</span>
+                <strong class="reminder-card-title" id="nextReminderValue"><?= e($nextReminderTitle) ?></strong>
+                <span class="reminder-card-sub" id="nextReminderSub"><?= e($nextReminderSubtitle) ?></span>
+            </div>
+        </div>
     </section>
 
     <section class="stats-grid">

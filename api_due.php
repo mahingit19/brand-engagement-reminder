@@ -63,5 +63,11 @@ foreach ($socialUrls as $url) {
 
 $due['links'] = $links;
 $due['open_url'] = $links[0] ?? ($due['latest_post_url'] ?: $due['first_social_url']);
-echo json_encode(['ok'=>true, 'due'=>$due]);
+echo json_encode([
+    'ok' => true,
+    'due' => $due,
+    'last_reminded_name' => $due['name'],
+    'last_reminded_time' => date('h:i A'),
+    'next_target_ts' => time() + ((int)$settings['reminder_interval_minutes'] * 60)
+]);
 

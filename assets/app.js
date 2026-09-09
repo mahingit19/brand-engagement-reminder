@@ -144,6 +144,69 @@
     });
   }
 
+  const nextReminderCard = document.getElementById('nextReminderCard');
+  const nextReminderValue = document.getElementById('nextReminderValue');
+  const nextReminderSub = document.getElementById('nextReminderSub');
+  const lastReminderValue = document.getElementById('lastReminderValue');
+  const lastReminderSub = document.getElementById('lastReminderSub');
+
+  if (nextReminderCard && nextReminderValue) {
+    let targetTs = parseInt(nextReminderCard.dataset.targetTs || '0', 10);
+    const status = nextReminderCard.dataset.status || '';
+
+    const updateTimer = () => {
+      if (!targetTs || status === 'completed' || status === 'window_closed') return;
+
+      const now = Math.floor(Date.now() / 1000);
+      const diff = targetTs - now;
+
+      if (diff <= 0) {
+        nextReminderValue.textContent = 'Due Now ⚡';
+        if (nextReminderSub && status === 'countdown') {
+          nextReminderSub.textContent = 'Queue ready for engagement';
+        }
+      } else {
+        const d = new Date(targetTs * 1000);
+        const hours = d.getHours();
+        const minutes = d.getMinutes();
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        const formattedHours = hours % 12 || 12;
+        const formattedMins = minutes < 10 ? '0' + minutes : minutes;
+        const timeStr = `${formattedHours}:${formattedMins} ${ampm}`;
+
+        const mins = Math.floor(diff / 60);
+        const secs = diff % 60;
+
+        if (mins > 60) {
+          const hrs = Math.floor(mins / 60);
+          const remMins = mins % 60;
+          nextReminderValue.textContent = `In ${hrs}h ${remMins}m (${timeStr})`;
+        } else if (mins > 0) {
+          nextReminderValue.textContent = `In ${mins}m ${secs < 10 ? '0' + secs : secs}s (${timeStr})`;
+        } else {
+          nextReminderValue.textContent = `In ${secs}s (${timeStr})`;
+        }
+      }
+    };
+
+    updateTimer();
+    setInterval(updateTimer, 1000);
+
+    window.updateReminderCards = (data) => {
+      if (!data) return;
+      if (data.last_reminded_name && lastReminderValue) {
+        lastReminderValue.textContent = `${data.last_reminded_time} · ${data.last_reminded_name}`;
+        if (lastReminderSub) lastReminderSub.textContent = 'Just now';
+      }
+      if (data.next_target_ts) {
+        targetTs = parseInt(data.next_target_ts, 10);
+        nextReminderCard.dataset.targetTs = targetTs;
+        nextReminderCard.dataset.status = 'countdown';
+        updateTimer();
+      }
+    };
+  }
+
   const pollSeconds = parseInt(document.body.dataset.pollSeconds || '60', 10);
   let lastNotifiedTask = null;
 
@@ -153,6 +216,11 @@
       const data = await res.json();
       if (!data.ok || !data.due) return;
       const due = data.due;
+
+      if (window.updateReminderCards) {
+        window.updateReminderCards(data);
+      }
+
       if (String(lastNotifiedTask) === String(due.id)) return;
       lastNotifiedTask = due.id;
 
