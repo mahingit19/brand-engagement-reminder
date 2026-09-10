@@ -1,8 +1,0 @@
-# Auto-detect text files and normalize line endings
-* text=auto
-
-*.php text
-*.js text
-*.css text
-*.sql text
-*.md text
