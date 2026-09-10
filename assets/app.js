@@ -232,7 +232,7 @@
           tag: `engagement-${due.id}`,
           requireInteraction: true
         });
-        notification.onclick = () => {
+        notification.onclick = async () => {
           window.focus();
           if (Array.isArray(due.links) && due.links.length > 0) {
             openLinksList(due.links);
@@ -242,6 +242,16 @@
           const card = document.getElementById(`task-${due.id}`);
           if (card) card.scrollIntoView({behavior:'smooth', block:'center'});
           notification.close();
+
+          try {
+            await postAction({ task_id: due.id, type: 'all_done' });
+            showToast(`Marked ${due.name} as All Done.`);
+            setTimeout(() => {
+              location.reload();
+            }, 600);
+          } catch (err) {
+            console.error('Failed to mark task all done:', err);
+          }
         };
       }
     } catch (err) {
