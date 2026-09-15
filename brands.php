@@ -181,7 +181,8 @@ ORDER BY b.status DESC, b.name ASC")->fetchAll();
                             <button type="button" class="remove-row" title="Remove link">×</button>
                         </div>
                         <div class="social-row-rss">
-                            <input type="url" name="social_rss_feed_url[]" placeholder="📡 RSS Feed URL for this platform (optional)" value="<?= e($row['rss_feed_url'] ?? '') ?>">
+                            <input type="url" name="social_rss_feed_url[]" placeholder="📡 RSS Feed URL (or click Auto-Gen)" value="<?= e($row['rss_feed_url'] ?? '') ?>">
+                            <button type="button" class="btn-autogen-rss" title="Auto-generate RSS feed URL">⚡ Auto-Gen</button>
                         </div>
                     </div>
                 <?php endforeach; ?>
@@ -241,6 +242,119 @@ ORDER BY b.status DESC, b.name ASC")->fetchAll();
     </section>
 </main>
 <script>
+function autoGenerateRssForCard(card, showNotice = false) {
+  const platformInput = card.querySelector('input[name="platform[]"]');
+  const urlInput = card.querySelector('input[name="url[]"]');
+  const rssInput = card.querySelector('input[name="social_rss_feed_url[]"]');
+  if (!urlInput || !rssInput) return;
+
+  const rawUrl = (urlInput.value || '').trim();
+  let platform = (platformInput ? platformInput.value : '').trim();
+
+  if (!rawUrl) {
+    if (showNotice) alert('অনুগ্রহ করে প্রথমে পেজ বা চ্যানেলের লিঙ্ক (URL) দিন।');
+    urlInput.focus();
+    return;
+  }
+
+  // Detect platform if missing or generic
+  const lowerUrl = rawUrl.toLowerCase();
+  if (!platform || (platform.toLowerCase() === 'facebook' && (lowerUrl.includes('youtube') || lowerUrl.includes('youtu.be')))) {
+    if (lowerUrl.includes('youtube.com') || lowerUrl.includes('youtu.be')) platform = 'YouTube';
+    else if (lowerUrl.includes('facebook.com') || lowerUrl.includes('fb.com')) platform = 'Facebook';
+    else if (lowerUrl.includes('instagram.com')) platform = 'Instagram';
+    else if (lowerUrl.includes('twitter.com') || lowerUrl.includes('x.com')) platform = 'Twitter/X';
+    else if (lowerUrl.includes('linkedin.com')) platform = 'LinkedIn';
+    else if (lowerUrl.includes('tiktok.com')) platform = 'TikTok';
+    if (platformInput && platform) platformInput.value = platform;
+  }
+
+  const p = (platform || '').toLowerCase();
+  let feedUrl = null;
+
+  // 1. YouTube
+  if (p.includes('youtube') || lowerUrl.includes('youtube.com') || lowerUrl.includes('youtu.be')) {
+    const chMatch = rawUrl.match(/\/channel\/(UC[a-zA-Z0-9_\-]+)/i);
+    const handleMatch = rawUrl.match(/@([a-zA-Z0-9_\-\.]+)/);
+    const cMatch = rawUrl.match(/\/(?:c|user)\/([a-zA-Z0-9_\-\.]+)/i);
+
+    if (chMatch) {
+      feedUrl = `http://localhost/rss-bridge/?action=display&bridge=YoutubeBridge&context=By+channel+id&c=${encodeURIComponent(chMatch[1])}&format=Atom`;
+    } else if (handleMatch) {
+      feedUrl = `http://localhost/rss-bridge/?action=display&bridge=YoutubeBridge&context=By+custom+name&custom=${encodeURIComponent(handleMatch[1])}&format=Atom`;
+    } else if (cMatch) {
+      feedUrl = `http://localhost/rss-bridge/?action=display&bridge=YoutubeBridge&context=By+custom+name&custom=${encodeURIComponent(cMatch[1])}&format=Atom`;
+    } else {
+      const cleanUrl = rawUrl.split(/[?#]/)[0].replace(/\/+$/, '');
+      const parts = cleanUrl.split('/');
+      const last = parts[parts.length - 1];
+      if (last && !['watch', 'videos', 'shorts', 'youtube.com'].includes(last.toLowerCase())) {
+        feedUrl = `http://localhost/rss-bridge/?action=display&bridge=YoutubeBridge&context=By+custom+name&custom=${encodeURIComponent(last.replace(/^@/, ''))}&format=Atom`;
+      }
+    }
+  }
+  // 2. Facebook
+  else if (p.includes('facebook') || lowerUrl.includes('facebook.com') || lowerUrl.includes('fb.com')) {
+    if (lowerUrl.includes('/groups/')) {
+      feedUrl = `http://localhost/rss-bridge/?action=display&bridge=FacebookBridge&context=Group&g=${encodeURIComponent(rawUrl.split('?')[0])}&format=Atom`;
+    } else {
+      const idMatch = rawUrl.match(/[?&]id=(\d+)/);
+      if (idMatch) {
+        feedUrl = `http://localhost/rss-bridge/?action=display&bridge=FacebookBridge&context=User&u=${encodeURIComponent(idMatch[1])}&format=Atom`;
+      } else {
+        const clean = rawUrl.split(/[?#]/)[0].replace(/\/+$/, '');
+        const parts = clean.split('/');
+        const last = parts[parts.length - 1];
+        if (last && !['facebook.com', 'fb.com', 'home.php', 'watch', 'pages'].includes(last.toLowerCase())) {
+          feedUrl = `http://localhost/rss-bridge/?action=display&bridge=FacebookBridge&context=User&u=${encodeURIComponent(last)}&format=Atom`;
+        }
+      }
+    }
+  }
+  // 3. Instagram
+  else if (p.includes('instagram') || lowerUrl.includes('instagram.com')) {
+    const clean = rawUrl.split(/[?#]/)[0].replace(/\/+$/, '');
+    const parts = clean.split('/');
+    const last = parts[parts.length - 1];
+    if (last && !['instagram.com', 'p', 'reel', 'explore'].includes(last.toLowerCase())) {
+      feedUrl = `http://localhost/rss-bridge/?action=display&bridge=InstagramBridge&context=Username&u=${encodeURIComponent(last)}&format=Atom`;
+    }
+  }
+  // 4. Twitter / X
+  else if (p.includes('twitter') || p.includes('x') || lowerUrl.includes('twitter.com') || lowerUrl.includes('x.com')) {
+    const clean = rawUrl.split(/[?#]/)[0].replace(/\/+$/, '');
+    const parts = clean.split('/');
+    const last = parts[parts.length - 1];
+    if (last && !['twitter.com', 'x.com', 'home', 'explore'].includes(last.toLowerCase())) {
+      feedUrl = `http://localhost/rss-bridge/?action=display&bridge=TwitterBridge&context=By+username&u=${encodeURIComponent(last)}&format=Atom`;
+    }
+  }
+  // 5. TikTok
+  else if (p.includes('tiktok') || lowerUrl.includes('tiktok.com')) {
+    const handleMatch = rawUrl.match(/@([a-zA-Z0-9_\-\.]+)/);
+    if (handleMatch) {
+      feedUrl = `http://localhost/rss-bridge/?action=display&bridge=TikTokBridge&context=By+user&u=${encodeURIComponent(handleMatch[1])}&format=Atom`;
+    }
+  }
+  // 6. Direct RSS / Atom feed already
+  else if (lowerUrl.endsWith('.xml') || lowerUrl.includes('/feed') || lowerUrl.includes('/rss')) {
+    feedUrl = rawUrl;
+  }
+
+  if (feedUrl) {
+    rssInput.value = feedUrl;
+    rssInput.style.transition = 'all 0.3s ease';
+    rssInput.style.borderColor = '#10b981';
+    rssInput.style.backgroundColor = '#ecfdf5';
+    setTimeout(() => {
+      rssInput.style.borderColor = '';
+      rssInput.style.backgroundColor = '';
+    }, 1500);
+  } else if (showNotice) {
+    alert('এই লিঙ্কের জন্য স্বয়ংক্রিয় RSS তৈরি করা যায়নি। আপনি ম্যানুয়ালি RSS লিঙ্ক দিতে পারেন অথবা localhost/rss-bridge থেকে তৈরি করে নিতে পারেন।');
+  }
+}
+
 document.getElementById('addSocial').addEventListener('click', () => {
   const card = document.createElement('div');
   card.className = 'social-card-row';
@@ -252,15 +366,31 @@ document.getElementById('addSocial').addEventListener('click', () => {
       <button type="button" class="remove-row" title="Remove link">×</button>
     </div>
     <div class="social-row-rss">
-      <input type="url" name="social_rss_feed_url[]" placeholder="📡 RSS Feed URL for this platform (optional)">
+      <input type="url" name="social_rss_feed_url[]" placeholder="📡 RSS Feed URL (or click Auto-Gen)">
+      <button type="button" class="btn-autogen-rss" title="Auto-generate RSS feed URL">⚡ Auto-Gen</button>
     </div>
   `;
   document.getElementById('socialRows').appendChild(card);
 });
+
 document.addEventListener('click', e => {
   if (e.target.classList.contains('remove-row')) {
     const card = e.target.closest('.social-card-row');
     if (card) card.remove();
+  } else if (e.target.closest('.btn-autogen-rss')) {
+    const btn = e.target.closest('.btn-autogen-rss');
+    const card = btn.closest('.social-card-row');
+    if (card) autoGenerateRssForCard(card, true);
+  }
+});
+
+document.addEventListener('change', e => {
+  if (e.target.matches('input[name="url[]"]')) {
+    const card = e.target.closest('.social-card-row');
+    const rssInput = card ? card.querySelector('input[name="social_rss_feed_url[]"]') : null;
+    if (card && rssInput && !rssInput.value.trim()) {
+      autoGenerateRssForCard(card, false);
+    }
   }
 });
 
