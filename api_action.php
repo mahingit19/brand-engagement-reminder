@@ -6,7 +6,18 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 $pdo = db();
 $taskId = (int)($_POST['task_id'] ?? 0);
+$postId = (int)($_POST['post_id'] ?? 0);
 $type = $_POST['type'] ?? '';
+
+if ($postId > 0) {
+    $pdo->prepare("UPDATE brand_posts SET is_engaged=1 WHERE id=:id")->execute(['id' => $postId]);
+}
+
+if ($taskId <= 0 && $postId > 0) {
+    echo json_encode(['ok'=>true]);
+    exit;
+}
+
 if ($taskId <= 0) { http_response_code(422); echo json_encode(['ok'=>false,'message'=>'Invalid task']); exit; }
 
 if (in_array($type, ['like','comment','share'], true)) {

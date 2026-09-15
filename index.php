@@ -15,9 +15,28 @@ $summaryStmt = $pdo->prepare("SELECT
 $summaryStmt->execute(['today' => today()]);
 $summary = $summaryStmt->fetch();
 
-$tasksStmt = $pdo->prepare("SELECT d.*, b.name, b.latest_post_url, b.notes
+function formatRelativeTime(?string $datetime): string
+{
+    if (!$datetime) return '';
+    $ts = strtotime($datetime);
+    if (!$ts) return '';
+    $diff = time() - $ts;
+    if ($diff < 60) return 'Just now';
+    if ($diff < 3600) return floor($diff / 60) . 'm ago';
+    if ($diff < 86400) return floor($diff / 3600) . 'h ago';
+    if ($diff < 86400 * 7) return floor($diff / 86400) . 'd ago';
+    return date('d M Y', $ts);
+}
+
+$tasksStmt = $pdo->prepare("SELECT d.*, b.name, b.latest_post_url, b.rss_feed_url, b.notes,
+        p.title AS tracked_post_title, p.post_url AS tracked_post_url, p.published_at AS tracked_post_published_at,
+        s.platform AS tracked_post_platform
     FROM daily_engagements d
     INNER JOIN brands b ON b.id = d.brand_id
+    LEFT JOIN brand_posts p ON p.id = (
+        SELECT bp.id FROM brand_posts bp WHERE bp.brand_id = b.id ORDER BY bp.published_at DESC, bp.id DESC LIMIT 1
+    )
+    LEFT JOIN social_links s ON s.id = p.social_link_id
     WHERE d.engagement_date = :today AND b.status = 1
     ORDER BY FIELD(d.status, 'pending','completed','skipped'), b.name ASC");
 $tasksStmt->execute(['today' => today()]);
@@ -176,8 +195,11 @@ if ($pendingCount === 0) {
             <h2>Today's Engagement Queue</h2>
             <p>Open a post/page, interact manually, then mark the action here.</p>
         </div>
-        <div class="search-box">
-            <input type="search" id="dashboardSearch" placeholder="🔍 Search brands..." autocomplete="off">
+        <div class="section-actions">
+            <button type="button" id="checkFeedsBtn" class="btn btn-light" title="Check all RSS feeds for new posts right now">📡 Check Feeds Now</button>
+            <div class="search-box">
+                <input type="search" id="dashboardSearch" placeholder="🔍 Search brands..." autocomplete="off">
+            </div>
         </div>
     </section>
 
@@ -198,9 +220,14 @@ if ($pendingCount === 0) {
             $links = $linkStmt->fetchAll();
             $isDone = $task['status'] === 'completed';
 
+            $trackedUrl = $task['tracked_post_url'] ?? '';
+            $latestManualUrl = $task['latest_post_url'] ?? '';
+
             $allCardLinks = [];
-            if (!empty($task['latest_post_url'])) {
-                $allCardLinks[] = $task['latest_post_url'];
+            if (!empty($trackedUrl)) {
+                $allCardLinks[] = $trackedUrl;
+            } elseif (!empty($latestManualUrl)) {
+                $allCardLinks[] = $latestManualUrl;
             }
             foreach ($links as $link) {
                 if (!empty($link['url']) && !in_array($link['url'], $allCardLinks, true)) {
@@ -221,11 +248,24 @@ if ($pendingCount === 0) {
 
                 <?php if ($task['notes']): ?><p class="muted"><?= e($task['notes']) ?></p><?php endif; ?>
 
+                <?php if (!empty($task['tracked_post_title']) || !empty($task['tracked_post_url'])): ?>
+                    <div class="post-preview-box">
+                        <div class="post-preview-header">
+                            <span class="post-preview-badge">📢 Latest Post<?= !empty($task['tracked_post_platform']) ? ' · ' . e($task['tracked_post_platform']) : '' ?></span>
+                            <?php if (!empty($task['tracked_post_published_at'])): ?>
+                                <span class="post-preview-time"><?= e(formatRelativeTime($task['tracked_post_published_at'])) ?></span>
+                            <?php endif; ?>
+                        </div>
+                        <div class="post-preview-title"><?= e($task['tracked_post_title'] ?: 'New Post Published') ?></div>
+                        <a class="post-direct-link" href="<?= e($task['tracked_post_url']) ?>" target="_blank" rel="noopener">⚡ সরাসরি পোস্টটি দেখুন ↗</a>
+                    </div>
+                <?php endif; ?>
+
                 <div class="links">
                     <?php if (count($allCardLinks) > 1): ?>
                         <button type="button" class="link-chip open-all-card-links" data-urls="<?= e(json_encode($allCardLinks)) ?>" style="cursor:pointer;background:#eef2ff;border-color:#c7d7fe;color:#1e40af;font-weight:600;">⚡ Open All (<?= count($allCardLinks) ?>) ↗</button>
                     <?php endif; ?>
-                    <?php if ($task['latest_post_url']): ?>
+                    <?php if ($task['latest_post_url'] && $task['latest_post_url'] !== ($task['tracked_post_url'] ?? '')): ?>
                         <a class="link-chip primary" href="<?= e($task['latest_post_url']) ?>" target="_blank" rel="noopener">Open Latest Post ↗</a>
                     <?php endif; ?>
                     <?php foreach ($links as $link): ?>

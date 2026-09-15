@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS brands (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(150) NOT NULL,
     latest_post_url VARCHAR(1000) NULL,
+    rss_feed_url VARCHAR(1000) NULL,
+    last_feed_check_at DATETIME NULL,
     notes VARCHAR(500) NULL,
     status TINYINT(1) NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -20,6 +22,8 @@ CREATE TABLE IF NOT EXISTS social_links (
     brand_id INT UNSIGNED NOT NULL,
     platform VARCHAR(50) NOT NULL,
     url VARCHAR(1000) NOT NULL,
+    rss_feed_url VARCHAR(1000) NULL,
+    last_feed_check_at DATETIME NULL,
     status TINYINT(1) NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_social_links_brand
@@ -60,3 +64,25 @@ CREATE TABLE IF NOT EXISTS daily_engagements (
     INDEX idx_due_lookup (engagement_date, status, snoozed_until, last_reminded_at),
     INDEX idx_daily_brand (brand_id, engagement_date)
 ) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS brand_posts (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    brand_id INT UNSIGNED NOT NULL,
+    social_link_id INT UNSIGNED NULL,
+    post_url VARCHAR(1000) NOT NULL,
+    post_guid VARCHAR(255) NOT NULL,
+    title VARCHAR(500) NULL,
+    content_snippet TEXT NULL,
+    published_at DATETIME NULL,
+    is_notified TINYINT(1) NOT NULL DEFAULT 0,
+    is_engaged TINYINT(1) NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_brand_posts_brand
+        FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE CASCADE,
+    CONSTRAINT fk_brand_posts_social
+        FOREIGN KEY (social_link_id) REFERENCES social_links(id) ON DELETE SET NULL,
+    UNIQUE KEY uq_brand_guid (brand_id, post_guid),
+    INDEX idx_notified_lookup (brand_id, is_notified),
+    INDEX idx_social_link (social_link_id)
+) ENGINE=InnoDB;
+
