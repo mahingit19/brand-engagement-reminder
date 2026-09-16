@@ -115,7 +115,9 @@ if (!empty($_GET['edit'])) {
 $brands = $pdo->query("SELECT b.*,
     COUNT(DISTINCT s.id) AS link_count,
     COUNT(DISTINCT bp.id) AS post_count,
-    COUNT(DISTINCT CASE WHEN s.rss_feed_url IS NOT NULL AND TRIM(s.rss_feed_url) != '' THEN s.id END) AS rss_feed_count
+    COUNT(DISTINCT CASE WHEN s.rss_feed_url IS NOT NULL AND TRIM(s.rss_feed_url) != '' THEN s.id END) AS rss_feed_count,
+    COUNT(DISTINCT CASE WHEN s.rss_feed_url IS NOT NULL AND TRIM(s.rss_feed_url) != '' AND s.last_feed_status = 'error' THEN s.id END) AS rss_error_count,
+    COUNT(DISTINCT CASE WHEN s.rss_feed_url IS NOT NULL AND TRIM(s.rss_feed_url) != '' AND s.last_feed_status = 'ok' THEN s.id END) AS rss_ok_count
 FROM brands b
 LEFT JOIN social_links s ON s.brand_id=b.id
 LEFT JOIN brand_posts bp ON bp.brand_id=b.id
@@ -183,7 +185,9 @@ ORDER BY b.status DESC, b.name ASC")->fetchAll();
                         <div class="social-row-rss">
                             <input type="url" name="social_rss_feed_url[]" placeholder="📡 RSS Feed URL (or click Auto-Gen)" value="<?= e($row['rss_feed_url'] ?? '') ?>">
                             <button type="button" class="btn-autogen-rss" title="Auto-generate RSS feed URL">⚡ Auto-Gen</button>
+                            <button type="button" class="btn-test-rss" title="Test if this RSS feed works right now">🧪 Test</button>
                         </div>
+                        <div class="feed-test-msg" style="font-size:12px;margin-top:2px;display:none;line-height:1.4;"></div>
                     </div>
                 <?php endforeach; ?>
             </div>
@@ -216,8 +220,11 @@ ORDER BY b.status DESC, b.name ASC")->fetchAll();
                     <div>
                         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                             <strong><?= e($brand['name']) ?></strong>
-                            <?php if ((int)$brand['rss_feed_count'] > 0): ?>
-                                <span class="badge-rss" style="background:#e0f2fe;color:#0369a1;font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px;" title="Auto RSS Tracking Active">📡 <?= (int)$brand['rss_feed_count'] ?> RSS <?= (int)$brand['rss_feed_count'] === 1 ? 'feed' : 'feeds' ?> (<?= (int)$brand['post_count'] ?> posts)</span>
+                            <?php if ((int)$brand['rss_ok_count'] > 0): ?>
+                                <span class="badge-rss" style="background:#e0f2fe;color:#0369a1;font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px;" title="Auto RSS Tracking Active">📡 <?= (int)$brand['rss_ok_count'] ?> Active RSS (<?= (int)$brand['post_count'] ?> posts)</span>
+                            <?php endif; ?>
+                            <?php if ((int)$brand['rss_error_count'] > 0): ?>
+                                <span class="badge-rss" style="background:#fee2e2;color:#b91c1c;font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px;" title="Bridge Error occurred on this feed">⚠️ <?= (int)$brand['rss_error_count'] ?> Bridge Error</span>
                             <?php endif; ?>
                         </div>
                         <span><?= (int)$brand['link_count'] ?> links · <?= $brand['status'] ? 'Active' : 'Inactive' ?></span>
@@ -343,15 +350,83 @@ function autoGenerateRssForCard(card, showNotice = false) {
 
   if (feedUrl) {
     rssInput.value = feedUrl;
-    rssInput.style.transition = 'all 0.3s ease';
-    rssInput.style.borderColor = '#10b981';
-    rssInput.style.backgroundColor = '#ecfdf5';
-    setTimeout(() => {
-      rssInput.style.borderColor = '';
-      rssInput.style.backgroundColor = '';
-    }, 1500);
+    testFeedForCard(card);
   } else if (showNotice) {
     alert('এই লিঙ্কের জন্য স্বয়ংক্রিয় RSS তৈরি করা যায়নি। আপনি ম্যানুয়ালি RSS লিঙ্ক দিতে পারেন অথবা localhost/rss-bridge থেকে তৈরি করে নিতে পারেন।');
+  }
+}
+
+async function testFeedForCard(card) {
+  const rssInput = card.querySelector('input[name="social_rss_feed_url[]"]');
+  let msgEl = card.querySelector('.feed-test-msg');
+  const testBtn = card.querySelector('.btn-test-rss');
+  const autoBtn = card.querySelector('.btn-autogen-rss');
+  if (!rssInput) return;
+
+  if (!msgEl) {
+    msgEl = document.createElement('div');
+    msgEl.className = 'feed-test-msg';
+    msgEl.style.fontSize = '12px';
+    msgEl.style.marginTop = '4px';
+    msgEl.style.lineHeight = '1.4';
+    card.appendChild(msgEl);
+  }
+
+  const url = (rssInput.value || '').trim();
+  if (!url) {
+    msgEl.style.display = 'block';
+    msgEl.style.background = '#fef3c7';
+    msgEl.style.color = '#92400e';
+    msgEl.style.border = '1px solid #fde68a';
+    msgEl.style.padding = '6px 10px';
+    msgEl.style.borderRadius = '8px';
+    msgEl.innerHTML = '⚠️ অনুগ্রহ করে প্রথমে RSS Feed URL দিন অথবা ⚡ Auto-Gen বাটনে ক্লিক করুন।';
+    return;
+  }
+
+  // Set testing state
+  msgEl.style.display = 'block';
+  msgEl.style.background = '#f0f9ff';
+  msgEl.style.color = '#0369a1';
+  msgEl.style.border = '1px solid #bae6fd';
+  msgEl.style.padding = '6px 10px';
+  msgEl.style.borderRadius = '8px';
+  msgEl.innerHTML = '⏳ <strong>যাচাই করা হচ্ছে...</strong> RSS-Bridge থেকে লাইভ পোস্ট চেক চলছে...';
+  if (testBtn) testBtn.disabled = true;
+  if (autoBtn) autoBtn.disabled = true;
+
+  try {
+    const formData = new URLSearchParams();
+    formData.append('url', url);
+    const res = await fetch('api_test_feed.php', {
+      method: 'POST',
+      body: formData
+    });
+    const data = await res.json();
+
+    if (data.ok) {
+      msgEl.style.background = '#ecfdf5';
+      msgEl.style.color = '#065f46';
+      msgEl.style.border = '1px solid #a7f3d0';
+      msgEl.innerHTML = `<strong>${data.message}</strong><br><small style="color:#047857;">সর্বশেষ পোস্ট: "${data.latest_title}"</small>`;
+      rssInput.style.borderColor = '#10b981';
+      rssInput.style.backgroundColor = '#f0fdf4';
+    } else {
+      msgEl.style.background = '#fef2f2';
+      msgEl.style.color = '#991b1b';
+      msgEl.style.border = '1px solid #fecaca';
+      msgEl.innerHTML = `<strong>${data.message}</strong><br><small style="color:#7f1d1d;">💡 এটি খালি রাখতে পারেন—তাহলে সিস্টেম অটো ফলব্যাক করে সরাসরি ওই সোশ্যাল পেজের রিমাইন্ডার দিবে।</small>`;
+      rssInput.style.borderColor = '#ef4444';
+      rssInput.style.backgroundColor = '#fff5f5';
+    }
+  } catch (err) {
+    msgEl.style.background = '#fef2f2';
+    msgEl.style.color = '#991b1b';
+    msgEl.style.border = '1px solid #fecaca';
+    msgEl.innerHTML = '❌ টেস্ট করতে সমস্যা হয়েছে। লোকাল XAMPP Apache চালু আছে কিনা নিশ্চিত করুন।';
+  } finally {
+    if (testBtn) testBtn.disabled = false;
+    if (autoBtn) autoBtn.disabled = false;
   }
 }
 
@@ -368,7 +443,9 @@ document.getElementById('addSocial').addEventListener('click', () => {
     <div class="social-row-rss">
       <input type="url" name="social_rss_feed_url[]" placeholder="📡 RSS Feed URL (or click Auto-Gen)">
       <button type="button" class="btn-autogen-rss" title="Auto-generate RSS feed URL">⚡ Auto-Gen</button>
+      <button type="button" class="btn-test-rss" title="Test if this RSS feed works right now">🧪 Test</button>
     </div>
+    <div class="feed-test-msg" style="font-size:12px;margin-top:2px;display:none;line-height:1.4;"></div>
   `;
   document.getElementById('socialRows').appendChild(card);
 });
@@ -381,6 +458,10 @@ document.addEventListener('click', e => {
     const btn = e.target.closest('.btn-autogen-rss');
     const card = btn.closest('.social-card-row');
     if (card) autoGenerateRssForCard(card, true);
+  } else if (e.target.closest('.btn-test-rss')) {
+    const btn = e.target.closest('.btn-test-rss');
+    const card = btn.closest('.social-card-row');
+    if (card) testFeedForCard(card);
   }
 });
 

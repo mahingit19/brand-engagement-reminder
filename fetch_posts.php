@@ -82,7 +82,7 @@ function parseFeedItems(string $xmlString): array
                 $snippet = mb_substr($snippet, 0, 277) . '...';
             }
 
-            if ($link !== '') {
+            if ($link !== '' && stripos($title, 'Bridge returned error') === false && stripos($title, 'Bridge error') === false) {
                 $items[] = [
                     'guid' => mb_substr($guid, 0, 255),
                     'url' => mb_substr($link, 0, 1000),
@@ -100,6 +100,11 @@ function parseFeedItems(string $xmlString): array
         foreach ($xml->entry as $entry) {
             $title = trim((string)$entry->title);
             $guid = trim((string)$entry->id);
+
+            // Ignore bridge error entries
+            if (stripos($title, 'Bridge returned error') !== false || stripos($title, 'Bridge error') !== false) {
+                continue;
+            }
 
             $link = '';
             if (isset($entry->link)) {
