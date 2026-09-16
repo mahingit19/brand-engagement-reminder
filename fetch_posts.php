@@ -199,7 +199,7 @@ function fetchBrandPosts(PDO $pdo, ?int $brandId = null, bool $force = false, ?i
     ");
 
     $updateSocialStmt = $pdo->prepare("
-        UPDATE social_links SET last_feed_check_at = NOW() WHERE id = :id
+        UPDATE social_links SET last_feed_check_at = NOW(), last_feed_status = :status WHERE id = :id
     ");
 
     $updateBrandStmt = $pdo->prepare("
@@ -212,14 +212,15 @@ function fetchBrandPosts(PDO $pdo, ?int $brandId = null, bool $force = false, ?i
         $xml = fetchFeedXml($feedUrl);
 
         if (!$xml) {
-            $updateSocialStmt->execute(['id' => $feed['social_link_id']]);
+            $updateSocialStmt->execute(['id' => $feed['social_link_id'], 'status' => 'error']);
             $results['errors'][] = "Failed to fetch feed for {$feed['brand_name']} - {$feed['platform']} ({$feedUrl})";
             continue;
         }
 
         $items = parseFeedItems($xml);
         if (empty($items)) {
-            $updateSocialStmt->execute(['id' => $feed['social_link_id']]);
+            $isError = (stripos($xml, 'Bridge-Error') !== false || stripos($xml, 'Exception') !== false || stripos($xml, '500 Internal') !== false);
+            $updateSocialStmt->execute(['id' => $feed['social_link_id'], 'status' => $isError ? 'error' : 'ok']);
             continue;
         }
 
@@ -256,7 +257,7 @@ function fetchBrandPosts(PDO $pdo, ?int $brandId = null, bool $force = false, ?i
             $latestUrl = $newestItem['url'];
         }
 
-        $updateSocialStmt->execute(['id' => $feed['social_link_id']]);
+        $updateSocialStmt->execute(['id' => $feed['social_link_id'], 'status' => 'ok']);
         if (!empty($latestUrl)) {
             $updateBrandStmt->execute([
                 'latest_url' => $latestUrl,

@@ -242,8 +242,10 @@
       const data = await res.json();
       if (!data.ok || !data.due) return;
       const due = data.due;
-      const isNewPost = data.type === 'new_post';
-      const notifyKey = isNewPost ? `post-${due.post_id}` : `task-${due.id}`;
+      const isPostNotification = data.type === 'new_post' || data.type === 'latest_post';
+      const notifyKey = isPostNotification
+        ? `post-${due.post_id || due.social_link_id || due.id}`
+        : `social-${due.social_link_id || due.id}-${Math.floor(Date.now() / 60000)}`;
 
       if (window.updateReminderCards) {
         window.updateReminderCards(data);
@@ -252,13 +254,16 @@
       if (lastNotifiedKey === notifyKey) return;
       lastNotifiedKey = notifyKey;
 
-      if (isNewPost) {
-        const platformLabel = due.platform ? ` (${due.platform})` : '';
-        showToast(`📢 নতুন পোস্ট: ${due.name}${platformLabel} - ${due.post_title}`);
+      const platformLabel = due.platform ? ` (${due.platform})` : '';
+
+      if (isPostNotification) {
+        const titleText = `📢 নতুন পোস্ট: ${due.name}${platformLabel}`;
+        const bodyText = `${due.post_title || 'New Post'}\n👉 ক্লিক করে সরাসরি পোস্ট দেখুন (Mark Done হবে)`;
+        showToast(`${titleText} - ${due.post_title || ''}`);
 
         if ('Notification' in window && Notification.permission === 'granted') {
-          const notification = new Notification(`📢 নতুন পোস্ট: ${due.name}${platformLabel}`, {
-            body: `${due.post_title}\n👉 ক্লিক করে সরাসরি পোস্ট দেখুন (Mark Done হবে)`,
+          const notification = new Notification(titleText, {
+            body: bodyText,
             tag: notifyKey,
             requireInteraction: true
           });
@@ -284,21 +289,22 @@
           };
         }
       } else {
-        showToast(`Reminder: ${due.name} needs engagement.`);
+        const titleText = `🔔 Engagement Reminder: ${due.name}${platformLabel}`;
+        const bodyText = `${due.name}-এর ${due.platform || 'Social'} পেজে লাইক/কমেন্ট করুন।\n👉 ক্লিক করে পেজ ওপেন করুন (Mark Done হবে)`;
+        showToast(titleText);
 
         if ('Notification' in window && Notification.permission === 'granted') {
-          const notification = new Notification('Social engagement reminder', {
-            body: `${due.name}: Like, comment and share if appropriate.`,
+          const notification = new Notification(titleText, {
+            body: bodyText,
             tag: notifyKey,
             requireInteraction: true
           });
 
           notification.onclick = async () => {
             window.focus();
-            if (Array.isArray(due.links) && due.links.length > 0) {
-              openLinksList(due.links);
-            } else if (due.open_url) {
-              openLinksList([due.open_url]);
+            if (due.open_url) {
+              // Open ONLY this specific social page in a new tab (never bulk open)
+              window.open(due.open_url, '_blank');
             }
             const card = document.getElementById(`task-${due.id}`);
             if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -306,7 +312,7 @@
 
             try {
               await postAction({ task_id: due.id, type: 'all_done' });
-              showToast(`Marked ${due.name} as All Done.`);
+              showToast(`পেজ ওপেন হয়েছে ও ${due.name} মার্ক করা হয়েছে!`);
               setTimeout(() => {
                 location.reload();
               }, 600);

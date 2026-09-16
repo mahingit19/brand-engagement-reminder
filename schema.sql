@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS social_links (
     url VARCHAR(1000) NOT NULL,
     rss_feed_url VARCHAR(1000) NULL,
     last_feed_check_at DATETIME NULL,
+    last_feed_status ENUM('ok','error','none') NOT NULL DEFAULT 'none',
+    last_reminded_at DATETIME NULL DEFAULT NULL,
     status TINYINT(1) NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_social_links_brand
