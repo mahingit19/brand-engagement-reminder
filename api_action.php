@@ -10,7 +10,7 @@ $postId = (int)($_POST['post_id'] ?? 0);
 $type = $_POST['type'] ?? '';
 
 if ($postId > 0) {
-    $pdo->prepare("UPDATE brand_posts SET is_engaged=1 WHERE id=:id")->execute(['id' => $postId]);
+    $pdo->prepare("UPDATE brand_posts SET is_notified=1, is_engaged=1 WHERE id=:id")->execute(['id' => $postId]);
 }
 
 if ($taskId <= 0 && $postId > 0) {

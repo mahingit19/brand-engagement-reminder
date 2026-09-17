@@ -229,15 +229,20 @@ function fetchBrandPosts(PDO $pdo, ?int $brandId = null, bool $force = false, ?i
             continue;
         }
 
-        // Sort items by published_at ascending so latest is processed last
-        usort($items, fn($a, $b) => strcmp($a['published_at'], $b['published_at']));
+        // Sort items by published_at DESC so the 1st item ($items[0]) is the newest/latest post
+        usort($items, fn($a, $b) => strcmp($b['published_at'], $a['published_at']));
 
         $newForThisFeed = 0;
-        $latestUrl = $feed['brand_latest_post_url'] ?? '';
         $isFirstCheck = empty($feed['last_feed_check_at']);
-        $notifiedVal = $isFirstCheck ? 1 : 0;
+        $latestItem = $items[0] ?? null;
+        $latestUrl = $latestItem['url'] ?? ($feed['brand_latest_post_url'] ?? '');
 
-        foreach ($items as $item) {
+        foreach ($items as $idx => $item) {
+            // CRITICAL: Only the single latest post ($idx === 0) can ever trigger a notification ($notifiedVal = 0),
+            // and only if this is NOT the very first scan of the feed.
+            // All other older/historical items in the feed ($idx > 0) are ALWAYS marked as already notified ($notifiedVal = 1).
+            $notifiedVal = ($isFirstCheck || $idx > 0) ? 1 : 0;
+
             $insertStmt->execute([
                 'brand_id' => $feed['brand_id'],
                 'social_link_id' => $feed['social_link_id'],
@@ -251,15 +256,10 @@ function fetchBrandPosts(PDO $pdo, ?int $brandId = null, bool $force = false, ?i
 
             if ($insertStmt->rowCount() > 0) {
                 $newForThisFeed++;
-                $results['new_posts']++;
-                $latestUrl = $item['url'];
+                if ($notifiedVal === 0) {
+                    $results['new_posts']++;
+                }
             }
-        }
-
-        // If latestUrl was empty, take the newest item link
-        if (empty($latestUrl) && !empty($items)) {
-            $newestItem = end($items);
-            $latestUrl = $newestItem['url'];
         }
 
         $updateSocialStmt->execute(['id' => $feed['social_link_id'], 'status' => 'ok']);

@@ -43,6 +43,8 @@ $newPost = $newPostStmt->fetch();
 if ($newPost) {
     $pdo->beginTransaction();
     $pdo->prepare("UPDATE brand_posts SET is_notified = 1 WHERE id = :post_id")->execute(['post_id' => $newPost['post_id']]);
+    // Also mark any other unnotified posts for this brand as notified so backlog never spams
+    $pdo->prepare("UPDATE brand_posts SET is_notified = 1 WHERE brand_id = :b_id AND is_notified = 0")->execute(['b_id' => $newPost['brand_id']]);
     if (!empty($newPost['social_link_id'])) {
         $pdo->prepare("UPDATE social_links SET last_reminded_at = NOW() WHERE id = :s_id")->execute(['s_id' => $newPost['social_link_id']]);
     }
@@ -155,22 +157,7 @@ if ($hasRss && $dueLink['social_link_id'] > 0) {
         }
     }
 
-    // If feed works without bridge error, check if a latest post exists
-    if ($feedStatus === 'ok') {
-        $postStmt = $pdo->prepare("
-            SELECT post_url, title FROM brand_posts
-            WHERE social_link_id = :s_id
-            ORDER BY published_at DESC, id DESC
-            LIMIT 1
-        ");
-        $postStmt->execute(['s_id' => $dueLink['social_link_id']]);
-        $latestPost = $postStmt->fetch();
-        if ($latestPost && !empty($latestPost['post_url'])) {
-            $targetUrl = $latestPost['post_url'];
-            $postTitle = $latestPost['title'];
-            $reminderType = 'latest_post';
-        }
-    }
+    // Feed status is refreshed. Routine queue reminds the user to visit and engage with the social page.
 }
 
 // Update last reminded timestamps

@@ -241,8 +241,7 @@
       const res = await fetch('api_due.php', { cache: 'no-store' });
       const data = await res.json();
       if (!data.ok || !data.due) return;
-      const due = data.due;
-      const isPostNotification = data.type === 'new_post' || data.type === 'latest_post';
+      const isPostNotification = data.type === 'new_post';
       const notifyKey = isPostNotification
         ? `post-${due.post_id || due.social_link_id || due.id}`
         : `social-${due.social_link_id || due.id}-${Math.floor(Date.now() / 60000)}`;
@@ -251,8 +250,30 @@
         window.updateReminderCards(data);
       }
 
+      // Check localStorage to ensure duplicate notification for the same post ID is NEVER fired
+      let notifiedPostIds = [];
+      try {
+        notifiedPostIds = JSON.parse(localStorage.getItem('notified_post_ids') || '[]');
+      } catch (e) {
+        notifiedPostIds = [];
+      }
+
+      if (isPostNotification && due.post_id) {
+        if (notifiedPostIds.includes(due.post_id)) {
+          return; // Already notified in this browser!
+        }
+      }
+
       if (lastNotifiedKey === notifyKey) return;
       lastNotifiedKey = notifyKey;
+
+      if (isPostNotification && due.post_id) {
+        notifiedPostIds.push(due.post_id);
+        if (notifiedPostIds.length > 300) notifiedPostIds.shift();
+        try {
+          localStorage.setItem('notified_post_ids', JSON.stringify(notifiedPostIds));
+        } catch (e) {}
+      }
 
       const platformLabel = due.platform ? ` (${due.platform})` : '';
 
