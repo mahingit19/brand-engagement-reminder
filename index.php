@@ -220,15 +220,8 @@ if ($pendingCount === 0) {
             $links = $linkStmt->fetchAll();
             $isDone = $task['status'] === 'completed';
 
-            $trackedUrl = $task['tracked_post_url'] ?? '';
-            $latestManualUrl = $task['latest_post_url'] ?? '';
-
+            // Social profile links only for "Open All" (excluding latest post)
             $allCardLinks = [];
-            if (!empty($trackedUrl)) {
-                $allCardLinks[] = $trackedUrl;
-            } elseif (!empty($latestManualUrl)) {
-                $allCardLinks[] = $latestManualUrl;
-            }
             foreach ($links as $link) {
                 if (!empty($link['url']) && !in_array($link['url'], $allCardLinks, true)) {
                     $allCardLinks[] = $link['url'];
