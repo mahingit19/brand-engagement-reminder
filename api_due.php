@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/fetch_posts.php';
+require_once __DIR__ . '/api_latest_posts.php';
 
 header('Content-Type: application/json; charset=utf-8');
 $pdo = db();
@@ -23,88 +24,90 @@ try {
     // Continue even if feed scan encounters an error
 }
 
-// 2. Priority 1: Check for any unnotified newly published post from working feeds
-$newPostStmt = $pdo->prepare("
-    SELECT p.id AS post_id, p.brand_id, p.social_link_id, p.post_url, p.title AS post_title, p.content_snippet, p.published_at,
-           b.name AS brand_name,
-           COALESCE(s.platform, 'Social') AS platform_name,
-           d.id AS task_id
-    FROM brand_posts p
-    INNER JOIN brands b ON b.id = p.brand_id AND b.status = 1
-    LEFT JOIN social_links s ON s.id = p.social_link_id
-    LEFT JOIN daily_engagements d ON d.brand_id = b.id AND d.engagement_date = :today
-    WHERE p.is_notified = 0
-    ORDER BY p.published_at DESC, p.id DESC
-    LIMIT 1
-");
-$newPostStmt->execute(['today' => today()]);
-$newPost = $newPostStmt->fetch();
+$force = !empty($_REQUEST['force']);
 
-if ($newPost) {
-    $pdo->beginTransaction();
-    $pdo->prepare("UPDATE brand_posts SET is_notified = 1 WHERE id = :post_id")->execute(['post_id' => $newPost['post_id']]);
-    // Also mark any other unnotified posts for this brand as notified so backlog never spams
-    $pdo->prepare("UPDATE brand_posts SET is_notified = 1 WHERE brand_id = :b_id AND is_notified = 0")->execute(['b_id' => $newPost['brand_id']]);
-    if (!empty($newPost['social_link_id'])) {
-        $pdo->prepare("UPDATE social_links SET last_reminded_at = NOW() WHERE id = :s_id")->execute(['s_id' => $newPost['social_link_id']]);
+if (!$force) {
+    // 2. Check window hours
+    $nowTime = date('H:i:s');
+    if ($nowTime < $settings['window_start'] || $nowTime > $settings['window_end']) {
+        echo json_encode(['ok'=>true, 'due'=>null, 'reason'=>'outside_window']);
+        exit;
     }
-    if (!empty($newPost['task_id'])) {
-        // Re-open daily engagement to pending so user can interact with the new post on the dashboard
-        $pdo->prepare("
-            UPDATE daily_engagements 
-            SET last_reminded_at = NOW(),
-                status = 'pending',
-                completed_at = NULL,
-                like_done = 0,
-                comment_done = 0,
-                share_done = 0,
-                snoozed_until = NULL
-            WHERE id = :task_id
-        ")->execute(['task_id' => $newPost['task_id']]);
+
+    $interval = (int)$settings['reminder_interval_minutes'];
+
+    // 3. Respect global interval gap between reminders
+    if (!empty($settings['last_global_reminder_at'])) {
+        $nextAllowed = strtotime($settings['last_global_reminder_at'] . " +{$interval} minutes");
+        if (time() < $nextAllowed) {
+            echo json_encode(['ok'=>true, 'due'=>null, 'reason'=>'global_interval']);
+            exit;
+        }
     }
+} else {
+    $interval = (int)$settings['reminder_interval_minutes'];
+}
+
+// 4. Priority 1: Check for unseen latest posts across all active brands
+$unseenPosts = getLatestUnseenPosts($pdo, 15);
+
+if (!empty($unseenPosts)) {
+    $count = count($unseenPosts);
+    $postIds = array_column($unseenPosts, 'id');
+    $urls = array_values(array_filter(array_column($unseenPosts, 'post_url')));
+    $brandNames = array_values(array_unique(array_column($unseenPosts, 'brand_name')));
+
+    // Update last_global_reminder_at so next reminder respects the interval
     $pdo->exec("UPDATE settings SET last_global_reminder_at = NOW() WHERE id = 1");
-    $pdo->commit();
 
-    $platformName = $newPost['platform_name'];
+    // Mark these posts as notified in DB
+    if (!empty($postIds)) {
+        $inClause = implode(',', array_map('intval', $postIds));
+        $pdo->exec("UPDATE brand_posts SET is_notified = 1 WHERE id IN ($inClause)");
+    }
+
+    // Update last_reminded_at for these brands in daily_engagements
+    $brandIds = array_unique(array_column($unseenPosts, 'brand_id'));
+    if (!empty($brandIds)) {
+        $inBrands = implode(',', array_map('intval', $brandIds));
+        $pdo->exec("UPDATE daily_engagements SET last_reminded_at = NOW() WHERE brand_id IN ($inBrands) AND engagement_date = '" . today() . "'");
+    }
+
+    if ($count === 1) {
+        $first = $unseenPosts[0];
+        $title = "📢 নতুন পোস্ট: {$first['brand_name']} ({$first['platform']})";
+        $body = "{$first['title']}\n👉 ক্লিক করে সরাসরি পোস্টটি দেখুন (Mark Seen হবে)";
+        $reminderLabel = "{$first['brand_name']} ({$first['platform']})";
+    } else {
+        $brandListStr = implode(', ', array_slice($brandNames, 0, 4));
+        if (count($brandNames) > 4) {
+            $brandListStr .= '... এবং আরও ' . (count($brandNames) - 4) . 'টি';
+        }
+        $title = "📢 {$count}টি নতুন পোস্ট রয়েছে!";
+        $body = "ব্র্যান্ড: {$brandListStr}\n👉 ক্লিক করলে সব পোস্ট একসাথে ওপেন হবে ও Mark Seen হবে";
+        $reminderLabel = "{$count} New Posts ({$brandListStr})";
+    }
+
     echo json_encode([
         'ok' => true,
-        'type' => 'new_post',
+        'type' => 'batch_latest_posts',
         'due' => [
-            'id' => (int)($newPost['task_id'] ?? 0),
-            'post_id' => (int)$newPost['post_id'],
-            'social_link_id' => (int)($newPost['social_link_id'] ?? 0),
-            'brand_id' => (int)$newPost['brand_id'],
-            'name' => $newPost['brand_name'],
-            'platform' => $platformName,
-            'post_title' => $newPost['post_title'] ?: 'New Post',
-            'content_snippet' => $newPost['content_snippet'],
-            'open_url' => $newPost['post_url'],
-            'published_at' => $newPost['published_at'],
+            'count' => $count,
+            'post_ids' => $postIds,
+            'urls' => $urls,
+            'brand_names' => $brandNames,
+            'title' => $title,
+            'body' => $body,
+            'posts' => $unseenPosts,
         ],
-        'last_reminded_name' => $newPost['brand_name'] . " ({$platformName})",
+        'last_reminded_name' => $reminderLabel,
         'last_reminded_time' => date('h:i A'),
-        'next_target_ts' => time() + ((int)$settings['reminder_interval_minutes'] * 60)
+        'next_target_ts' => time() + ($interval * 60)
     ]);
     exit;
 }
 
-// 3. Priority 2: Routine per-social-link reminder queue
-$nowTime = date('H:i:s');
-if ($nowTime < $settings['window_start'] || $nowTime > $settings['window_end']) {
-    echo json_encode(['ok'=>true, 'due'=>null, 'reason'=>'outside_window']);
-    exit;
-}
-
-$interval = (int)$settings['reminder_interval_minutes'];
-
-// Respect global gap between reminders
-if (!empty($settings['last_global_reminder_at'])) {
-    $nextAllowed = strtotime($settings['last_global_reminder_at'] . " +{$interval} minutes");
-    if (time() < $nextAllowed) {
-        echo json_encode(['ok'=>true, 'due'=>null, 'reason'=>'global_interval']);
-        exit;
-    }
-}
+// 5. Priority 2: Routine per-social-link reminder queue (if NO unseen posts exist)
 
 // Find next due social link from pending brands
 $dueStmt = $pdo->prepare("

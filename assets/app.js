@@ -394,77 +394,20 @@
       const res = await fetch('api_due.php', { cache: 'no-store' });
       const data = await res.json();
       if (!data.ok || !data.due) return;
-      const isPostNotification = data.type === 'new_post';
-      const notifyKey = isPostNotification
-        ? `post-${due.post_id || due.social_link_id || due.id}`
-        : `social-${due.social_link_id || due.id}-${Math.floor(Date.now() / 60000)}`;
+      const due = data.due;
 
       if (window.updateReminderCards) {
         window.updateReminderCards(data);
       }
 
-      // Check localStorage to ensure duplicate notification for the same post ID is NEVER fired
-      let notifiedPostIds = [];
-      try {
-        notifiedPostIds = JSON.parse(localStorage.getItem('notified_post_ids') || '[]');
-      } catch (e) {
-        notifiedPostIds = [];
-      }
+      // --- BATCH LATEST POSTS NOTIFICATION ---
+      if (data.type === 'batch_latest_posts') {
+        const notifyKey = `batch-posts-${due.post_ids ? due.post_ids.slice().sort().join('-') : Date.now()}`;
+        if (lastNotifiedKey === notifyKey) return;
+        lastNotifiedKey = notifyKey;
 
-      if (isPostNotification && due.post_id) {
-        if (notifiedPostIds.includes(due.post_id)) {
-          return; // Already notified in this browser!
-        }
-      }
-
-      if (lastNotifiedKey === notifyKey) return;
-      lastNotifiedKey = notifyKey;
-
-      if (isPostNotification && due.post_id) {
-        notifiedPostIds.push(due.post_id);
-        if (notifiedPostIds.length > 300) notifiedPostIds.shift();
-        try {
-          localStorage.setItem('notified_post_ids', JSON.stringify(notifiedPostIds));
-        } catch (e) {}
-      }
-
-      const platformLabel = due.platform ? ` (${due.platform})` : '';
-
-      if (isPostNotification) {
-        const titleText = `📢 নতুন পোস্ট: ${due.name}${platformLabel}`;
-        const bodyText = `${due.post_title || 'New Post'}\n👉 ক্লিক করে সরাসরি পোস্ট দেখুন (Mark Done হবে)`;
-        showToast(`${titleText} - ${due.post_title || ''}`);
-
-        if ('Notification' in window && Notification.permission === 'granted') {
-          const notification = new Notification(titleText, {
-            body: bodyText,
-            tag: notifyKey,
-            requireInteraction: true
-          });
-
-          notification.onclick = async () => {
-            window.focus();
-            if (due.open_url) {
-              window.open(due.open_url, '_blank');
-            }
-            const card = document.getElementById(`task-${due.id}`);
-            if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            notification.close();
-
-            try {
-              await postAction({ task_id: due.id, post_id: due.post_id, type: 'all_done' });
-              showToast(`নতুন পোস্ট ওপেন হয়েছে ও ${due.name} মার্ক করা হয়েছে!`);
-              setTimeout(() => {
-                location.reload();
-              }, 600);
-            } catch (err) {
-              console.error('Failed to mark task all done:', err);
-            }
-          };
-        }
-      } else {
-        const titleText = `🔔 Engagement Reminder: ${due.name}${platformLabel}`;
-        const bodyText = `${due.name}-এর ${due.platform || 'Social'} পেজে লাইক/কমেন্ট করুন।\n👉 ক্লিক করে পেজ ওপেন করুন (Mark Done হবে)`;
+        const titleText = due.title || '📢 নতুন পোস্ট পাওয়া গেছে!';
+        const bodyText = due.body || 'ক্লিক করে সব নতুন পোস্ট দেখুন ও Seen মার্ক করুন';
         showToast(titleText);
 
         if ('Notification' in window && Notification.permission === 'granted') {
@@ -476,25 +419,70 @@
 
           notification.onclick = async () => {
             window.focus();
-            if (due.open_url) {
-              // Open ONLY this specific social page in a new tab (never bulk open)
-              window.open(due.open_url, '_blank');
-            }
-            const card = document.getElementById(`task-${due.id}`);
-            if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
             notification.close();
 
-            try {
-              await postAction({ task_id: due.id, type: 'all_done' });
-              showToast(`পেজ ওপেন হয়েছে ও ${due.name} মার্ক করা হয়েছে!`);
-              setTimeout(() => {
-                location.reload();
-              }, 600);
-            } catch (err) {
-              console.error('Failed to mark task all done:', err);
+            // 1. Open all latest post links simultaneously in new tabs
+            if (Array.isArray(due.urls) && due.urls.length > 0) {
+              openLinksList(due.urls);
+            }
+
+            // 2. Mark all these posts as seen and engaged in DB
+            if (Array.isArray(due.post_ids) && due.post_ids.length > 0) {
+              try {
+                await fetch('api_latest_posts.php?action=mark_seen_batch', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ post_ids: due.post_ids })
+                });
+                showToast(`সবগুলো পোস্ট (${due.count}টি) ওপেন করা হয়েছে ও Seen মার্ক করা হয়েছে!`);
+                setTimeout(() => {
+                  location.reload();
+                }, 800);
+              } catch (err) {
+                console.error('Failed to mark batch seen:', err);
+              }
             }
           };
         }
+        return;
+      }
+
+      // --- ROUTINE PER-SOCIAL-LINK REMINDER ---
+      const notifyKey = `social-${due.social_link_id || due.id}-${Math.floor(Date.now() / 60000)}`;
+      if (lastNotifiedKey === notifyKey) return;
+      lastNotifiedKey = notifyKey;
+
+      const platformLabel = due.platform ? ` (${due.platform})` : '';
+      const titleText = `🔔 Engagement Reminder: ${due.name}${platformLabel}`;
+      const bodyText = `${due.name}-এর ${due.platform || 'Social'} পেজে লাইক/কমেন্ট করুন।\n👉 ক্লিক করে পেজ ওপেন করুন (Mark Done হবে)`;
+      showToast(titleText);
+
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const notification = new Notification(titleText, {
+          body: bodyText,
+          tag: notifyKey,
+          requireInteraction: true
+        });
+
+        notification.onclick = async () => {
+          window.focus();
+          if (due.open_url) {
+            window.open(due.open_url, '_blank');
+          }
+          const card = document.getElementById(`task-${due.id}`);
+          if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          notification.close();
+
+          try {
+            await postAction({ task_id: due.id, type: 'all_done' });
+            showToast(`পেজ ওপেন হয়েছে ও ${due.name} মার্ক করা হয়েছে!`);
+            setTimeout(() => {
+              location.reload();
+            }, 600);
+          } catch (err) {
+            console.error('Failed to mark task all done:', err);
+          }
+        };
       }
     } catch (err) {
       // Keep polling silently. The dashboard itself remains usable.

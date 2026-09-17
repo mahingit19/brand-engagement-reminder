@@ -76,6 +76,30 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         exit;
     }
 
+    if ($action === 'mark_seen_batch') {
+        $raw = file_get_contents('php://input');
+        $input = json_decode($raw, true);
+        $postIds = $input['post_ids'] ?? (isset($_POST['post_ids']) ? (array)$_POST['post_ids'] : []);
+        if (!empty($postIds)) {
+            $cleanIds = array_filter(array_map('intval', (array)$postIds));
+            if (!empty($cleanIds)) {
+                $inClause = implode(',', $cleanIds);
+                $pdo->exec("UPDATE brand_posts SET is_notified = 1, is_engaged = 1 WHERE id IN ($inClause)");
+
+                // Mark daily_engagements for these brands as completed for today
+                $bStmt = $pdo->query("SELECT DISTINCT brand_id FROM brand_posts WHERE id IN ($inClause)");
+                $bIds = $bStmt->fetchAll(PDO::FETCH_COLUMN);
+                if (!empty($bIds)) {
+                    $inBrands = implode(',', array_map('intval', $bIds));
+                    $pdo->exec("UPDATE daily_engagements SET like_done = 1, comment_done = 1, share_done = 1, status = 'completed', completed_at = NOW() WHERE brand_id IN ($inBrands) AND engagement_date = '" . today() . "'");
+                }
+            }
+        }
+        $unseen = getLatestUnseenPosts($pdo);
+        echo json_encode(['ok' => true, 'count' => count($unseen)]);
+        exit;
+    }
+
     if ($action === 'refresh') {
         $scanRes = [
             'checked_feeds' => 0,
