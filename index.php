@@ -28,6 +28,9 @@ function formatRelativeTime(?string $datetime): string
     return date('d M Y', $ts);
 }
 
+require_once __DIR__ . '/api_latest_posts.php';
+$unseenPosts = getLatestUnseenPosts($pdo, 30);
+
 $tasksStmt = $pdo->prepare("SELECT d.*, b.name, b.latest_post_url, b.rss_feed_url, b.notes,
         p.title AS tracked_post_title, p.post_url AS tracked_post_url, p.published_at AS tracked_post_published_at,
         s.platform AS tracked_post_platform
@@ -188,6 +191,65 @@ if ($pendingCount === 0) {
         <div class="stat"><span>Pending</span><strong><?= (int)$summary['pending'] ?></strong></div>
         <div class="stat"><span>Completed</span><strong><?= (int)$summary['completed'] ?></strong></div>
         <div class="stat"><span>Skipped</span><strong><?= (int)$summary['skipped'] ?></strong></div>
+    </section>
+
+    <section class="latest-posts-section" id="latestPostsSection">
+        <div class="section-head" style="margin-bottom:12px;">
+            <div>
+                <h2>📢 Latest Posts <span class="counter-badge" id="unseenPostsBadge" style="background:#e0e7ff;color:#3730a3;"><?= count($unseenPosts) ?></span></h2>
+                <p>নতুন পাবলিশ হওয়া যেসব পোস্ট এখনও দেখা বা এনগেজ করা হয়নি।</p>
+            </div>
+            <div class="section-actions">
+                <button type="button" id="refreshLatestPostsBtn" class="btn btn-light" title="Check RSS feeds and refresh latest posts">
+                    🔄 Refresh Posts
+                </button>
+                <?php if (!empty($unseenPosts)): ?>
+                    <button type="button" id="markAllPostsSeenBtn" class="btn btn-ghost" title="Mark all listed posts as seen">
+                        ✓ Mark All as Seen
+                    </button>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <div class="latest-posts-grid" id="latestPostsGrid" <?= empty($unseenPosts) ? 'style="display:none;"' : '' ?>>
+            <?php foreach ($unseenPosts as $up):
+                $platformKey = strtolower(preg_replace('/[^a-z0-9]/i', '', $up['platform']));
+            ?>
+                <div class="latest-post-card" id="unseen-post-<?= (int)$up['id'] ?>" data-post-id="<?= (int)$up['id'] ?>">
+                    <div>
+                        <div class="latest-post-header">
+                            <div class="latest-post-brand">
+                                <span><?= e($up['brand_name']) ?></span>
+                                <span class="platform-pill platform-<?= e($platformKey) ?>"><?= e($up['platform']) ?></span>
+                            </div>
+                            <span class="latest-post-time"><?= e($up['relative_time']) ?></span>
+                        </div>
+                        <h4 class="latest-post-title">
+                            <a href="<?= e($up['post_url']) ?>" target="_blank" rel="noopener" class="open-unseen-post" data-post-id="<?= (int)$up['id'] ?>">
+                                <?= e($up['title']) ?>
+                            </a>
+                        </h4>
+                        <?php if (!empty($up['snippet'])): ?>
+                            <p class="latest-post-snippet"><?= e($up['snippet']) ?></p>
+                        <?php endif; ?>
+                    </div>
+                    <div class="latest-post-actions">
+                        <a href="<?= e($up['post_url']) ?>" target="_blank" rel="noopener" class="btn btn-sm btn-primary open-unseen-post" data-post-id="<?= (int)$up['id'] ?>">
+                            ⚡ Open Post ↗
+                        </a>
+                        <button type="button" class="btn btn-sm btn-ghost mark-post-seen" data-post-id="<?= (int)$up['id'] ?>" title="Mark as seen without opening">
+                            ✓ Mark Seen
+                        </button>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+
+        <div class="empty-state-compact" id="latestPostsEmptyState" <?= !empty($unseenPosts) ? 'style="display:none;"' : '' ?>>
+            <div style="font-size:32px;margin-bottom:8px;">🎉</div>
+            <h4>সব নতুন পোস্ট দেখা শেষ!</h4>
+            <p class="muted">কোনো নতুন অদেখা পোস্ট নেই। ফিডে নতুন পোস্ট আসলে স্বয়ংক্রিয়ভাবে এখানে তালিকাভুক্ত হবে।</p>
+        </div>
     </section>
 
     <section class="section-head">

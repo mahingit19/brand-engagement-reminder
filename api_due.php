@@ -49,7 +49,18 @@ if ($newPost) {
         $pdo->prepare("UPDATE social_links SET last_reminded_at = NOW() WHERE id = :s_id")->execute(['s_id' => $newPost['social_link_id']]);
     }
     if (!empty($newPost['task_id'])) {
-        $pdo->prepare("UPDATE daily_engagements SET last_reminded_at = NOW() WHERE id = :task_id")->execute(['task_id' => $newPost['task_id']]);
+        // Re-open daily engagement to pending so user can interact with the new post on the dashboard
+        $pdo->prepare("
+            UPDATE daily_engagements 
+            SET last_reminded_at = NOW(),
+                status = 'pending',
+                completed_at = NULL,
+                like_done = 0,
+                comment_done = 0,
+                share_done = 0,
+                snoozed_until = NULL
+            WHERE id = :task_id
+        ")->execute(['task_id' => $newPost['task_id']]);
     }
     $pdo->exec("UPDATE settings SET last_global_reminder_at = NOW() WHERE id = 1");
     $pdo->commit();
