@@ -45,7 +45,15 @@ $tasksStmt = $pdo->prepare("SELECT d.*, b.name, b.latest_post_url, b.rss_feed_ur
 $tasksStmt->execute(['today' => today()]);
 $tasks = $tasksStmt->fetchAll();
 
-$linkStmt = $pdo->prepare("SELECT platform, url FROM social_links WHERE brand_id = :brand_id AND status = 1 ORDER BY id ASC");
+$linkStmt = $pdo->prepare("
+    SELECT s.id, s.platform, s.url,
+           IF(dse.is_done = 1, 1, 0) AS is_done
+    FROM social_links s
+    LEFT JOIN daily_social_engagements dse 
+        ON dse.social_link_id = s.id AND dse.engagement_date = :today
+    WHERE s.brand_id = :brand_id AND s.status = 1 
+    ORDER BY s.id ASC
+");
 
 // --- LAST REMINDER CALCULATION ---
 $lastRemindedStmt = $pdo->prepare("SELECT d.last_reminded_at, b.name
@@ -278,9 +286,14 @@ if ($pendingCount === 0) {
         </div>
         <div class="task-grid">
         <?php foreach ($tasks as $task):
-            $linkStmt->execute(['brand_id' => $task['brand_id']]);
+            $linkStmt->execute(['brand_id' => $task['brand_id'], 'today' => today()]);
             $links = $linkStmt->fetchAll();
             $isDone = $task['status'] === 'completed';
+            $totalLinksCount = count($links);
+            $doneLinksCount = 0;
+            foreach ($links as $l) {
+                if (!empty($l['is_done'])) $doneLinksCount++;
+            }
 
             // Social profile links only for "Open All" (excluding latest post)
             $allCardLinks = [];
@@ -294,6 +307,11 @@ if ($pendingCount === 0) {
                 <div class="task-title-row">
                     <div>
                         <span class="status-pill status-<?= e($task['status']) ?>"><?= e(ucfirst($task['status'])) ?></span>
+                        <?php if ($totalLinksCount > 1): ?>
+                            <span class="links-count-pill <?= $doneLinksCount === $totalLinksCount ? 'all-done' : '' ?>" title="<?= $doneLinksCount ?> of <?= $totalLinksCount ?> links engaged today">
+                                <?= $doneLinksCount ?>/<?= $totalLinksCount ?> links
+                            </span>
+                        <?php endif; ?>
                         <h3><?= e($task['name']) ?></h3>
                     </div>
                     <?php if ($task['last_reminded_at']): ?>
@@ -324,7 +342,17 @@ if ($pendingCount === 0) {
                         <a class="link-chip primary" href="<?= e($task['latest_post_url']) ?>" target="_blank" rel="noopener">Open Latest Post ↗</a>
                     <?php endif; ?>
                     <?php foreach ($links as $link): ?>
-                        <a class="link-chip" href="<?= e($link['url']) ?>" target="_blank" rel="noopener"><?= e($link['platform']) ?> ↗</a>
+                        <a class="link-chip social-card-link <?= $link['is_done'] ? 'is-done' : '' ?>" 
+                           href="<?= e($link['url']) ?>" 
+                           target="_blank" 
+                           rel="noopener"
+                           data-link-id="<?= (int)$link['id'] ?>"
+                           data-task-id="<?= (int)$task['id'] ?>"
+                           data-brand-name="<?= e($task['name']) ?>"
+                           data-platform="<?= e($link['platform']) ?>"
+                           title="<?= $link['is_done'] ? 'আজ সম্পন্ন হয়েছে' : 'ক্লিক করে লিঙ্ক ওপেন করুন ও Mark Done হবে' ?>">
+                            <?= e($link['platform']) ?> <span><?= $link['is_done'] ? '✓' : '↗' ?></span>
+                        </a>
                     <?php endforeach; ?>
                 </div>
 

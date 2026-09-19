@@ -109,7 +109,7 @@ if (!empty($unseenPosts)) {
 
 // 5. Priority 2: Routine per-social-link reminder queue (if NO unseen posts exist)
 
-// Find next due social link from pending brands
+// Find next due social link from pending brands (excluding links already completed today)
 $dueStmt = $pdo->prepare("
     SELECT s.id AS social_link_id, s.brand_id, s.platform, s.url AS social_url, s.rss_feed_url,
            s.last_feed_check_at, s.last_feed_status, s.last_reminded_at AS link_last_reminded,
@@ -118,13 +118,15 @@ $dueStmt = $pdo->prepare("
     FROM social_links s
     INNER JOIN brands b ON b.id = s.brand_id AND b.status = 1
     INNER JOIN daily_engagements d ON d.brand_id = b.id AND d.engagement_date = :today
+    LEFT JOIN daily_social_engagements dse ON dse.social_link_id = s.id AND dse.engagement_date = :today2
     WHERE s.status = 1
       AND d.status = 'pending'
       AND (d.snoozed_until IS NULL OR d.snoozed_until <= NOW())
+      AND (dse.id IS NULL OR dse.is_done = 0)
     ORDER BY (s.last_reminded_at IS NULL) DESC, s.last_reminded_at ASC, (d.last_reminded_at IS NULL) DESC, d.last_reminded_at ASC
     LIMIT 1
 ");
-$dueStmt->execute(['today' => today()]);
+$dueStmt->execute(['today' => today(), 'today2' => today()]);
 $dueLink = $dueStmt->fetch();
 
 // Fallback for brands that have pending tasks but no social_links rows
@@ -174,6 +176,24 @@ if ($hasRss && $dueLink['social_link_id'] > 0) {
     // Feed status is refreshed. Routine queue reminds the user to visit and engage with the social page.
 }
 
+// Calculate brand's total links and completed links today
+$brandTotalLinks = 0;
+$brandDoneLinks = 0;
+if (!empty($dueLink['brand_id'])) {
+    $totStmt = $pdo->prepare("SELECT COUNT(*) FROM social_links WHERE brand_id = :bid AND status = 1");
+    $totStmt->execute(['bid' => $dueLink['brand_id']]);
+    $brandTotalLinks = (int)$totStmt->fetchColumn();
+
+    $dnStmt = $pdo->prepare("
+        SELECT COUNT(DISTINCT s.id) 
+        FROM social_links s
+        INNER JOIN daily_social_engagements dse ON dse.social_link_id = s.id AND dse.engagement_date = :today
+        WHERE s.brand_id = :bid AND s.status = 1 AND dse.is_done = 1
+    ");
+    $dnStmt->execute(['bid' => $dueLink['brand_id'], 'today' => today()]);
+    $brandDoneLinks = (int)$dnStmt->fetchColumn();
+}
+
 // Update last reminded timestamps
 $pdo->beginTransaction();
 if (!empty($dueLink['social_link_id'])) {
@@ -186,6 +206,8 @@ $pdo->exec("UPDATE settings SET last_global_reminder_at = NOW() WHERE id = 1");
 $pdo->commit();
 
 $platformName = $dueLink['platform'];
+$progressText = $brandTotalLinks > 1 ? " (" . ($brandDoneLinks + 1) . "/{$brandTotalLinks})" : "";
+
 echo json_encode([
     'ok' => true,
     'type' => $reminderType,
@@ -198,8 +220,11 @@ echo json_encode([
         'platform' => $platformName,
         'post_title' => $postTitle,
         'open_url' => $targetUrl,
+        'done_count' => $brandDoneLinks,
+        'total_count' => $brandTotalLinks,
     ],
-    'last_reminded_name' => $dueLink['brand_name'] . " ({$platformName})",
+    'last_reminded_name' => $dueLink['brand_name'] . " ({$platformName})" . $progressText,
     'last_reminded_time' => date('h:i A'),
     'next_target_ts' => time() + ((int)$settings['reminder_interval_minutes'] * 60)
 ]);
+

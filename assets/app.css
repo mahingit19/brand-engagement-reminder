@@ -28,3 +28,9 @@
 .empty-state-compact h4{margin:0 0 4px;font-size:16px;color:#334155}
 .empty-state-compact p{margin:0;font-size:13px;color:var(--muted)}
 
+.links-count-pill{display:inline-block;padding:2px 8px;font-size:11px;font-weight:600;border-radius:9999px;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;margin-left:6px;vertical-align:middle}
+.links-count-pill.all-done{background:#ecfdf5;color:#065f46;border-color:#a7f3d0}
+.link-chip.is-done{background:#ecfdf5!important;border-color:#a7f3d0!important;color:#065f46!important;font-weight:600}
+.link-chip.is-done span{color:#059669;font-weight:700}
+
+

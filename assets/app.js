@@ -106,6 +106,39 @@
       return;
     }
 
+    const socialLink = e.target.closest('.social-card-link');
+    if (socialLink) {
+      const taskId = socialLink.dataset.taskId;
+      const linkId = socialLink.dataset.linkId;
+      const brandName = socialLink.dataset.brandName || '';
+      const platform = socialLink.dataset.platform || '';
+
+      if (!socialLink.classList.contains('is-done') && linkId) {
+        postAction({
+          task_id: taskId,
+          social_link_id: linkId,
+          type: 'link_done'
+        }).then((res) => {
+          socialLink.classList.add('is-done');
+          const span = socialLink.querySelector('span');
+          if (span) span.textContent = '✓';
+          socialLink.title = 'আজ সম্পন্ন হয়েছে';
+          if (res && res.brand_completed) {
+            showToast(`🎉 ${brandName}-এর সব লিঙ্ক সম্পন্ন হয়েছে! ব্র্যান্ড Completed.`);
+            setTimeout(() => location.reload(), 700);
+          } else if (res && typeof res.done_count !== 'undefined') {
+            showToast(`✓ ${brandName} (${platform}) সম্পন্ন হয়েছে (${res.done_count}/${res.total_count})`);
+            const card = document.getElementById(`task-${taskId}`);
+            if (card) {
+              const pill = card.querySelector('.links-count-pill');
+              if (pill) pill.textContent = `${res.done_count}/${res.total_count} links`;
+            }
+          }
+        }).catch((err) => console.error(err));
+      }
+      return;
+    }
+
     const toggle = e.target.closest('.action-toggle');
     const markAll = e.target.closest('.mark-all');
     const snooze = e.target.closest('.snooze');
@@ -453,8 +486,13 @@
       lastNotifiedKey = notifyKey;
 
       const platformLabel = due.platform ? ` (${due.platform})` : '';
-      const titleText = `🔔 Engagement Reminder: ${due.name}${platformLabel}`;
-      const bodyText = `${due.name}-এর ${due.platform || 'Social'} পেজে লাইক/কমেন্ট করুন।\n👉 ক্লিক করে পেজ ওপেন করুন (Mark Done হবে)`;
+      const progressLabel = (due.total_count && due.total_count > 1)
+        ? ` [${due.done_count + 1}/${due.total_count}]`
+        : '';
+      const titleText = `🔔 Engagement Reminder: ${due.name}${platformLabel}${progressLabel}`;
+      const bodyText = (due.total_count && due.total_count > 1)
+        ? `${due.name}-এর ${due.platform} পেজে লাইক/কমেন্ট করুন (${due.done_count + 1}/${due.total_count} নম্বর লিঙ্ক)।\n👉 ক্লিক করলে পেজ ওপেন হবে ও লিঙ্কটি Mark Done হবে`
+        : `${due.name}-এর ${due.platform || 'Social'} পেজে লাইক/কমেন্ট করুন。\n👉 ক্লিক করে পেজ ওপেন করুন (Mark Done হবে)`;
       showToast(titleText);
 
       if ('Notification' in window && Notification.permission === 'granted') {
@@ -474,13 +512,26 @@
           notification.close();
 
           try {
-            await postAction({ task_id: due.id, type: 'all_done' });
-            showToast(`পেজ ওপেন হয়েছে ও ${due.name} মার্ক করা হয়েছে!`);
+            const isSocialLink = Number(due.social_link_id) > 0;
+            const res = await postAction({
+              task_id: due.id,
+              social_link_id: due.social_link_id || 0,
+              type: isSocialLink ? 'link_done' : 'all_done'
+            });
+
+            if (res && res.brand_completed) {
+              showToast(`🎉 ${due.name}-এর সব (${res.total_count || 1}টি) লিঙ্ক সম্পন্ন হয়েছে! ব্র্যান্ড Completed.`);
+            } else if (res && typeof res.done_count !== 'undefined') {
+              showToast(`✓ ${due.name} (${due.platform}) সম্পন্ন হয়েছে (${res.done_count}/${res.total_count} links done)`);
+            } else {
+              showToast(`পেজ ওপেন হয়েছে ও ${due.name} মার্ক করা হয়েছে!`);
+            }
+
             setTimeout(() => {
               location.reload();
-            }, 600);
+            }, 700);
           } catch (err) {
-            console.error('Failed to mark task all done:', err);
+            console.error('Failed to mark task done:', err);
           }
         };
       }

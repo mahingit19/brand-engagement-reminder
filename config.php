@@ -44,6 +44,21 @@ function nowSql(): string
 
 function ensureTodayTasks(PDO $pdo): void
 {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS daily_social_engagements (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        daily_engagement_id BIGINT UNSIGNED NOT NULL,
+        brand_id INT UNSIGNED NOT NULL,
+        social_link_id INT UNSIGNED NOT NULL,
+        engagement_date DATE NOT NULL,
+        is_done TINYINT(1) NOT NULL DEFAULT 1,
+        done_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT fk_dse_daily FOREIGN KEY (daily_engagement_id) REFERENCES daily_engagements(id) ON DELETE CASCADE,
+        CONSTRAINT fk_dse_brand FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE CASCADE,
+        CONSTRAINT fk_dse_social FOREIGN KEY (social_link_id) REFERENCES social_links(id) ON DELETE CASCADE,
+        UNIQUE KEY uq_link_day (social_link_id, engagement_date),
+        INDEX idx_brand_day (brand_id, engagement_date)
+    ) ENGINE=InnoDB;");
+
     $sql = "INSERT INTO daily_engagements (brand_id, engagement_date, status, created_at)
             SELECT b.id, :today, 'pending', NOW()
             FROM brands b
@@ -55,6 +70,7 @@ function ensureTodayTasks(PDO $pdo): void
     $stmt = $pdo->prepare($sql);
     $stmt->execute(['today' => today(), 'today2' => today()]);
 }
+
 
 function getSettings(PDO $pdo): array
 {
