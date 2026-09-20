@@ -1,5 +1,7 @@
 <?php
 require __DIR__ . '/config.php';
+requireAdmin();
+$currentUser = currentUser();
 $pdo = db();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -78,6 +80,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             fetchBrandPosts($pdo, $id, true);
         }
 
+        logUserActivity($pdo, (int)$currentUser['id'], 'save_brand', $id, null, null, "Brand '{$name}' saved");
+
         header('Location: brands.php?saved=1');
         exit;
     }
@@ -94,6 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'toggle_brand') {
         $id = (int)($_POST['id'] ?? 0);
         $pdo->prepare("UPDATE brands SET status = IF(status=1,0,1) WHERE id=:id")->execute(['id'=>$id]);
+        logUserActivity($pdo, (int)$currentUser['id'], 'toggle_brand', $id, null, null, "Toggled status for brand #{$id}");
         header('Location: brands.php');
         exit;
     }
@@ -134,7 +139,25 @@ ORDER BY b.status DESC, b.name ASC")->fetchAll();
 <body>
 <header class="topbar">
     <div><h1>Brand Management</h1><p>Add each brand and its social/profile links.</p></div>
-    <nav><a href="index.php">Dashboard</a><a href="brands.php" class="active">Brands</a><a href="settings.php">Settings</a></nav>
+    <div class="topbar-right">
+        <nav>
+            <a href="index.php">Dashboard</a>
+            <a href="reports.php">Reports</a>
+            <?php if (isAdmin()): ?>
+                <a href="brands.php" class="active">Brands</a>
+                <a href="settings.php">Settings</a>
+                <a href="users.php">Users</a>
+            <?php endif; ?>
+        </nav>
+        <div class="user-menu">
+            <span class="user-badge" title="Logged in as <?= e($currentUser['username']) ?>">
+                <span class="user-avatar">👤</span>
+                <span class="user-name"><?= e($currentUser['name']) ?></span>
+                <span class="role-badge role-<?= e($currentUser['role']) ?>"><?= e(strtoupper($currentUser['role'])) ?></span>
+            </span>
+            <a href="logout.php" class="btn-logout" title="Sign out">Logout</a>
+        </div>
+    </div>
 </header>
 <main class="container brands-layout">
     <section class="panel sticky-panel" id="brandFormPanel">

@@ -1,8 +1,16 @@
 <?php
 require __DIR__ . '/config.php';
+requireLogin();
+$currentUser = currentUser();
+$currentUserId = (int)$currentUser['id'];
 $pdo = db();
-ensureTodayTasks($pdo);
+ensureTodayTasks($pdo, $currentUserId);
 $settings = getSettings($pdo);
+
+// Fetch fresh user record for user-specific last_reminder_at
+$userStmt = $pdo->prepare("SELECT * FROM users WHERE id = :id");
+$userStmt->execute(['id' => $currentUserId]);
+$userRow = $userStmt->fetch() ?: $currentUser;
 
 $summaryStmt = $pdo->prepare("SELECT
     COUNT(*) AS total,
@@ -11,8 +19,8 @@ $summaryStmt = $pdo->prepare("SELECT
     COALESCE(SUM(d.status = 'skipped'), 0) AS skipped
     FROM daily_engagements d
     INNER JOIN brands b ON b.id = d.brand_id
-    WHERE d.engagement_date = :today AND b.status = 1");
-$summaryStmt->execute(['today' => today()]);
+    WHERE d.engagement_date = :today AND d.user_id = :uid AND b.status = 1");
+$summaryStmt->execute(['today' => today(), 'uid' => $currentUserId]);
 $summary = $summaryStmt->fetch();
 
 function formatRelativeTime(?string $datetime): string
@@ -29,7 +37,7 @@ function formatRelativeTime(?string $datetime): string
 }
 
 require_once __DIR__ . '/api_latest_posts.php';
-$unseenPosts = getLatestUnseenPosts($pdo, 30);
+$unseenPosts = getLatestUnseenPosts($pdo, 30, $currentUserId);
 
 $tasksStmt = $pdo->prepare("SELECT d.*, b.name, b.latest_post_url, b.rss_feed_url, b.notes,
         p.title AS tracked_post_title, p.post_url AS tracked_post_url, p.published_at AS tracked_post_published_at,
@@ -40,9 +48,9 @@ $tasksStmt = $pdo->prepare("SELECT d.*, b.name, b.latest_post_url, b.rss_feed_ur
         SELECT bp.id FROM brand_posts bp WHERE bp.brand_id = b.id ORDER BY bp.published_at DESC, bp.id DESC LIMIT 1
     )
     LEFT JOIN social_links s ON s.id = p.social_link_id
-    WHERE d.engagement_date = :today AND b.status = 1
+    WHERE d.engagement_date = :today AND d.user_id = :uid AND b.status = 1
     ORDER BY FIELD(d.status, 'pending','completed','skipped'), b.name ASC");
-$tasksStmt->execute(['today' => today()]);
+$tasksStmt->execute(['today' => today(), 'uid' => $currentUserId]);
 $tasks = $tasksStmt->fetchAll();
 
 $linkStmt = $pdo->prepare("
@@ -50,19 +58,19 @@ $linkStmt = $pdo->prepare("
            IF(dse.is_done = 1, 1, 0) AS is_done
     FROM social_links s
     LEFT JOIN daily_social_engagements dse 
-        ON dse.social_link_id = s.id AND dse.engagement_date = :today
+        ON dse.social_link_id = s.id AND dse.engagement_date = :today AND dse.user_id = :uid
     WHERE s.brand_id = :brand_id AND s.status = 1 
     ORDER BY s.id ASC
 ");
 
-// --- LAST REMINDER CALCULATION ---
+// --- LAST REMINDER CALCULATION (PER USER) ---
 $lastRemindedStmt = $pdo->prepare("SELECT d.last_reminded_at, b.name
     FROM daily_engagements d
     INNER JOIN brands b ON b.id = d.brand_id
-    WHERE d.engagement_date = :today AND b.status = 1 AND d.last_reminded_at IS NOT NULL
+    WHERE d.engagement_date = :today AND d.user_id = :uid AND b.status = 1 AND d.last_reminded_at IS NOT NULL
     ORDER BY d.last_reminded_at DESC
     LIMIT 1");
-$lastRemindedStmt->execute(['today' => today()]);
+$lastRemindedStmt->execute(['today' => today(), 'uid' => $currentUserId]);
 $lastReminded = $lastRemindedStmt->fetch();
 
 if ($lastReminded) {
@@ -70,8 +78,8 @@ if ($lastReminded) {
     $lastReminderTitle = date('h:i A', $lastRemindedTs) . ' · ' . $lastReminded['name'];
     $minsAgo = max(0, round((time() - $lastRemindedTs) / 60));
     $lastReminderSubtitle = ($minsAgo === 0 ? 'Just now' : ($minsAgo < 60 ? $minsAgo . ' min ago' : round($minsAgo / 60, 1) . ' hr ago'));
-} elseif (!empty($settings['last_global_reminder_at']) && date('Y-m-d', strtotime($settings['last_global_reminder_at'])) === today()) {
-    $lastRemindedTs = strtotime($settings['last_global_reminder_at']);
+} elseif (!empty($userRow['last_reminder_at']) && date('Y-m-d', strtotime($userRow['last_reminder_at'])) === today()) {
+    $lastRemindedTs = strtotime($userRow['last_reminder_at']);
     $lastReminderTitle = date('h:i A', $lastRemindedTs);
     $lastReminderSubtitle = 'Earlier today';
 } else {
@@ -79,7 +87,7 @@ if ($lastReminded) {
     $lastReminderSubtitle = 'Waiting for first reminder';
 }
 
-// --- NEXT REMINDER CALCULATION ---
+// --- NEXT REMINDER CALCULATION (PER USER) ---
 $nowTime = date('H:i:s');
 $windowStart = $settings['window_start'];
 $windowEnd = $settings['window_end'];
@@ -95,7 +103,7 @@ if ($pendingCount === 0) {
         $nextReminderSubtitle = 'Add brands to start reminders';
     } else {
         $nextReminderTitle = 'All completed! 🎉';
-        $nextReminderSubtitle = 'All pending tasks done for today';
+        $nextReminderSubtitle = 'All your pending tasks are done for today';
     }
     $nextStatus = 'completed';
 } elseif ($nowTime < $windowStart) {
@@ -115,20 +123,20 @@ if ($pendingCount === 0) {
         MIN(CASE WHEN d.snoozed_until IS NOT NULL AND d.snoozed_until > NOW() THEN d.snoozed_until END) AS earliest_snooze
         FROM daily_engagements d
         INNER JOIN brands b ON b.id = d.brand_id
-        WHERE d.engagement_date = :today AND b.status = 1 AND d.status = 'pending'");
-    $snoozeCheckStmt->execute(['today' => today()]);
+        WHERE d.engagement_date = :today AND d.user_id = :uid AND b.status = 1 AND d.status = 'pending'");
+    $snoozeCheckStmt->execute(['today' => today(), 'uid' => $currentUserId]);
     $snoozeInfo = $snoozeCheckStmt->fetch();
 
     $allSnoozed = ($snoozeInfo && $snoozeInfo['total_pending'] > 0 && $snoozeInfo['total_pending'] == $snoozeInfo['snoozed_count']);
-    $lastGlobalTs = !empty($settings['last_global_reminder_at']) ? strtotime($settings['last_global_reminder_at']) : 0;
+    $lastUserTs = !empty($userRow['last_reminder_at']) ? strtotime($userRow['last_reminder_at']) : 0;
     $intervalSec = $intervalMinutes * 60;
-    $nextAllowed = $lastGlobalTs ? ($lastGlobalTs + $intervalSec) : time();
+    $nextAllowed = $lastUserTs ? ($lastUserTs + $intervalSec) : time();
 
     if ($allSnoozed && !empty($snoozeInfo['earliest_snooze'])) {
         $snoozeEndTs = strtotime($snoozeInfo['earliest_snooze']);
         $nextTargetTimestamp = max($nextAllowed, $snoozeEndTs);
         $nextReminderTitle = date('h:i A', $nextTargetTimestamp);
-        $nextReminderSubtitle = 'All pending brands snoozed';
+        $nextReminderSubtitle = 'All your pending brands snoozed';
         $nextStatus = 'snoozed';
     } else {
         if (time() >= $nextAllowed) {
@@ -160,14 +168,34 @@ if ($pendingCount === 0) {
         <h1>Brand Engagement Reminder</h1>
         <p><?= e(date('l, d M Y')) ?> · Window <?= e(substr($settings['window_start'],0,5)) ?>–<?= e(substr($settings['window_end'],0,5)) ?> · Every <?= (int)$settings['reminder_interval_minutes'] ?> min</p>
     </div>
-    <nav>
-        <a href="index.php" class="active">Dashboard</a>
-        <a href="brands.php">Brands</a>
-        <a href="settings.php">Settings</a>
-    </nav>
+    <div class="topbar-right">
+        <nav>
+            <a href="index.php" class="active">Dashboard</a>
+            <a href="reports.php">Reports</a>
+            <?php if (isAdmin()): ?>
+                <a href="brands.php">Brands</a>
+                <a href="settings.php">Settings</a>
+                <a href="users.php">Users</a>
+            <?php endif; ?>
+        </nav>
+        <div class="user-menu">
+            <span class="user-badge" title="Logged in as <?= e($currentUser['username']) ?>">
+                <span class="user-avatar">👤</span>
+                <span class="user-name"><?= e($currentUser['name']) ?></span>
+                <span class="role-badge role-<?= e($currentUser['role']) ?>"><?= e(strtoupper($currentUser['role'])) ?></span>
+            </span>
+            <a href="logout.php" class="btn-logout" title="Sign out">Logout</a>
+        </div>
+    </div>
 </header>
 
 <main class="container">
+    <?php if (!empty($_GET['error']) && $_GET['error'] === 'forbidden'): ?>
+        <div class="alert error" style="margin-bottom:16px;">
+            ⚠️ অ্যাক্সেস নিষিদ্ধ: আপনার এই পেজে প্রবেশের অনুমতি নেই। শুধুমাত্র অ্যাডমিন সিস্টেম সেটিংস ও ব্র্যান্ড কনফিগারেশন দেখতে পারেন।
+        </div>
+    <?php endif; ?>
+
     <section class="notice-bar">
         <div>
             <strong>Browser notifications:</strong> Keep this tab open during office hours. Click Enable Notifications once.
@@ -286,7 +314,7 @@ if ($pendingCount === 0) {
         </div>
         <div class="task-grid">
         <?php foreach ($tasks as $task):
-            $linkStmt->execute(['brand_id' => $task['brand_id'], 'today' => today()]);
+            $linkStmt->execute(['brand_id' => $task['brand_id'], 'today' => today(), 'uid' => $currentUserId]);
             $links = $linkStmt->fetchAll();
             $isDone = $task['status'] === 'completed';
             $totalLinksCount = count($links);

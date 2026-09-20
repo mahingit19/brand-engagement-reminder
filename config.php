@@ -42,33 +42,32 @@ function nowSql(): string
     return date('Y-m-d H:i:s');
 }
 
-function ensureTodayTasks(PDO $pdo): void
+function ensureTodayTasks(PDO $pdo, ?int $userId = null): void
 {
-    $pdo->exec("CREATE TABLE IF NOT EXISTS daily_social_engagements (
-        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        daily_engagement_id BIGINT UNSIGNED NOT NULL,
-        brand_id INT UNSIGNED NOT NULL,
-        social_link_id INT UNSIGNED NOT NULL,
-        engagement_date DATE NOT NULL,
-        is_done TINYINT(1) NOT NULL DEFAULT 1,
-        done_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT fk_dse_daily FOREIGN KEY (daily_engagement_id) REFERENCES daily_engagements(id) ON DELETE CASCADE,
-        CONSTRAINT fk_dse_brand FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE CASCADE,
-        CONSTRAINT fk_dse_social FOREIGN KEY (social_link_id) REFERENCES social_links(id) ON DELETE CASCADE,
-        UNIQUE KEY uq_link_day (social_link_id, engagement_date),
-        INDEX idx_brand_day (brand_id, engagement_date)
-    ) ENGINE=InnoDB;");
+    if ($userId !== null && $userId > 0) {
+        $sql = "INSERT INTO daily_engagements (user_id, brand_id, engagement_date, status, created_at)
+                SELECT :user_id, b.id, :today, 'pending', NOW()
+                FROM brands b
+                WHERE b.status = 1
+                  AND NOT EXISTS (
+                      SELECT 1 FROM daily_engagements d
+                      WHERE d.user_id = :user_id2 AND d.brand_id = b.id AND d.engagement_date = :today2
+                  )";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([
+            'user_id' => $userId,
+            'today' => today(),
+            'user_id2' => $userId,
+            'today2' => today()
+        ]);
+        return;
+    }
 
-    $sql = "INSERT INTO daily_engagements (brand_id, engagement_date, status, created_at)
-            SELECT b.id, :today, 'pending', NOW()
-            FROM brands b
-            WHERE b.status = 1
-              AND NOT EXISTS (
-                  SELECT 1 FROM daily_engagements d
-                  WHERE d.brand_id = b.id AND d.engagement_date = :today2
-              )";
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute(['today' => today(), 'today2' => today()]);
+    $uStmt = $pdo->query("SELECT id FROM users WHERE status = 1");
+    $activeUsers = $uStmt->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($activeUsers as $uid) {
+        ensureTodayTasks($pdo, (int)$uid);
+    }
 }
 
 
@@ -84,3 +83,7 @@ function getSettings(PDO $pdo): array
     }
     return $settings;
 }
+
+require_once __DIR__ . '/auth.php';
+ensureAuthSchema(db());
+

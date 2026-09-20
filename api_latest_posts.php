@@ -19,8 +19,13 @@ if (!function_exists('formatRelativeTime')) {
     }
 }
 
-function getLatestUnseenPosts(PDO $pdo, int $limit = 50): array
+function getLatestUnseenPosts(PDO $pdo, int $limit = 50, ?int $userId = null): array
 {
+    if ($userId === null || $userId <= 0) {
+        $u = currentUser();
+        $userId = $u ? (int)$u['id'] : 1;
+    }
+
     $stmt = $pdo->prepare("
         SELECT p.id, p.brand_id, p.social_link_id, b.name AS brand_name,
                COALESCE(s.platform, 'Social') AS platform,
@@ -28,16 +33,12 @@ function getLatestUnseenPosts(PDO $pdo, int $limit = 50): array
         FROM brand_posts p
         INNER JOIN brands b ON b.id = p.brand_id AND b.status = 1
         LEFT JOIN social_links s ON s.id = p.social_link_id
-        INNER JOIN (
-            SELECT MAX(id) AS max_id
-            FROM brand_posts
-            WHERE is_engaged = 0
-            GROUP BY brand_id, COALESCE(social_link_id, 0)
-        ) latest ON latest.max_id = p.id
-        WHERE p.is_engaged = 0
+        LEFT JOIN user_post_engagements upe ON upe.post_id = p.id AND upe.user_id = :user_id
+        WHERE (upe.id IS NULL OR upe.is_engaged = 0)
         ORDER BY p.published_at DESC, p.id DESC
         LIMIT :lim
     ");
+    $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
     $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
     $stmt->execute();
     $posts = $stmt->fetchAll();
@@ -55,24 +56,54 @@ function getLatestUnseenPosts(PDO $pdo, int $limit = 50): array
 }
 
 if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
+    requireLogin();
     header('Content-Type: application/json; charset=utf-8');
 
+    $currentUser = currentUser();
+    $userId = (int)($currentUser['id'] ?? 0);
     $action = $_REQUEST['action'] ?? 'get';
 
     if ($action === 'mark_seen') {
         $postId = (int)($_POST['post_id'] ?? 0);
         if ($postId > 0) {
-            $stmt = $pdo->prepare("UPDATE brand_posts SET is_notified = 1, is_engaged = 1 WHERE id = :id");
-            $stmt->execute(['id' => $postId]);
+            $ins = $pdo->prepare("
+                INSERT INTO user_post_engagements (user_id, post_id, is_notified, is_engaged, engaged_at)
+                VALUES (:uid, :pid, 1, 1, NOW())
+                ON DUPLICATE KEY UPDATE is_notified = 1, is_engaged = 1, engaged_at = NOW()
+            ");
+            $ins->execute(['uid' => $userId, 'pid' => $postId]);
+
+            $pInfo = $pdo->query("SELECT brand_id, social_link_id, title FROM brand_posts WHERE id = {$postId}")->fetch();
+            logUserActivity(
+                $pdo,
+                $userId,
+                'post_seen',
+                $pInfo ? (int)$pInfo['brand_id'] : null,
+                $pInfo ? (int)$pInfo['social_link_id'] : null,
+                $postId,
+                $pInfo ? "Marked post seen: {$pInfo['title']}" : 'Marked post seen'
+            );
         }
-        $unseen = getLatestUnseenPosts($pdo);
+        $unseen = getLatestUnseenPosts($pdo, 50, $userId);
         echo json_encode(['ok' => true, 'count' => count($unseen)]);
         exit;
     }
 
     if ($action === 'mark_all_seen') {
-        $stmt = $pdo->exec("UPDATE brand_posts SET is_notified = 1, is_engaged = 1 WHERE is_engaged = 0");
-        echo json_encode(['ok' => true, 'updated' => $stmt, 'count' => 0]);
+        $unseen = getLatestUnseenPosts($pdo, 200, $userId);
+        $ins = $pdo->prepare("
+            INSERT INTO user_post_engagements (user_id, post_id, is_notified, is_engaged, engaged_at)
+            VALUES (:uid, :pid, 1, 1, NOW())
+            ON DUPLICATE KEY UPDATE is_notified = 1, is_engaged = 1, engaged_at = NOW()
+        ");
+        $cnt = 0;
+        foreach ($unseen as $p) {
+            $ins->execute(['uid' => $userId, 'pid' => $p['id']]);
+            $cnt++;
+        }
+
+        logUserActivity($pdo, $userId, 'batch_posts_seen', null, null, null, "Marked all active posts as seen ({$cnt} posts)");
+        echo json_encode(['ok' => true, 'updated' => $cnt, 'count' => 0]);
         exit;
     }
 
@@ -83,19 +114,28 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         if (!empty($postIds)) {
             $cleanIds = array_filter(array_map('intval', (array)$postIds));
             if (!empty($cleanIds)) {
-                $inClause = implode(',', $cleanIds);
-                $pdo->exec("UPDATE brand_posts SET is_notified = 1, is_engaged = 1 WHERE id IN ($inClause)");
+                $ins = $pdo->prepare("
+                    INSERT INTO user_post_engagements (user_id, post_id, is_notified, is_engaged, engaged_at)
+                    VALUES (:uid, :pid, 1, 1, NOW())
+                    ON DUPLICATE KEY UPDATE is_notified = 1, is_engaged = 1, engaged_at = NOW()
+                ");
+                foreach ($cleanIds as $cid) {
+                    $ins->execute(['uid' => $userId, 'pid' => $cid]);
+                }
 
-                // Mark daily_engagements for these brands as completed for today
+                // Mark daily_engagements for these brands as completed for THIS user today
+                $inClause = implode(',', $cleanIds);
                 $bStmt = $pdo->query("SELECT DISTINCT brand_id FROM brand_posts WHERE id IN ($inClause)");
                 $bIds = $bStmt->fetchAll(PDO::FETCH_COLUMN);
                 if (!empty($bIds)) {
                     $inBrands = implode(',', array_map('intval', $bIds));
-                    $pdo->exec("UPDATE daily_engagements SET like_done = 1, comment_done = 1, share_done = 1, status = 'completed', completed_at = NOW() WHERE brand_id IN ($inBrands) AND engagement_date = '" . today() . "'");
+                    $pdo->exec("UPDATE daily_engagements SET like_done = 1, comment_done = 1, share_done = 1, status = 'completed', completed_at = NOW() WHERE user_id = {$userId} AND brand_id IN ($inBrands) AND engagement_date = '" . today() . "'");
                 }
+
+                logUserActivity($pdo, $userId, 'batch_posts_seen', null, null, null, "Opened batch posts (" . count($cleanIds) . " posts)");
             }
         }
-        $unseen = getLatestUnseenPosts($pdo);
+        $unseen = getLatestUnseenPosts($pdo, 50, $userId);
         echo json_encode(['ok' => true, 'count' => count($unseen)]);
         exit;
     }
@@ -110,7 +150,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         } catch (\Throwable $e) {
             // Continue even if a feed error occurred
         }
-        $unseen = getLatestUnseenPosts($pdo);
+        $unseen = getLatestUnseenPosts($pdo, 50, $userId);
         echo json_encode([
             'ok' => true,
             'new_posts' => $scanRes['new_posts'] ?? 0,
@@ -121,8 +161,8 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         exit;
     }
 
-    // Default: get latest unseen posts
-    $unseen = getLatestUnseenPosts($pdo);
+    // Default: get latest unseen posts for this user
+    $unseen = getLatestUnseenPosts($pdo, 50, $userId);
     echo json_encode([
         'ok' => true,
         'count' => count($unseen),
@@ -130,4 +170,3 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
     ]);
     exit;
 }
-

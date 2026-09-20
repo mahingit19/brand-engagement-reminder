@@ -286,6 +286,9 @@ function fetchBrandPosts(PDO $pdo, ?int $brandId = null, bool $force = false, ?i
 
 // Handle direct web request or CLI invocation
 if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
+    if (php_sapi_name() !== 'cli') {
+        requireLogin();
+    }
     $pdo = db();
     $brandId = isset($_REQUEST['brand_id']) ? (int)$_REQUEST['brand_id'] : null;
     $force = !empty($_REQUEST['force']);

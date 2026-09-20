@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/fetch_posts.php';
+requireAdmin();
 
 header('Content-Type: application/json; charset=utf-8');
 
