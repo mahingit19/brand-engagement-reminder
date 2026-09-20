@@ -42,6 +42,21 @@ function nowSql(): string
     return date('Y-m-d H:i:s');
 }
 
+if (!function_exists('formatRelativeTime')) {
+    function formatRelativeTime(?string $datetime): string
+    {
+        if (!$datetime) return '';
+        $ts = strtotime($datetime);
+        if (!$ts) return '';
+        $diff = time() - $ts;
+        if ($diff < 60) return 'Just now';
+        if ($diff < 3600) return floor($diff / 60) . 'm ago';
+        if ($diff < 86400) return floor($diff / 3600) . 'h ago';
+        if ($diff < 86400 * 7) return floor($diff / 86400) . 'd ago';
+        return date('d M Y', $ts);
+    }
+}
+
 function ensureTodayTasks(PDO $pdo, ?int $userId = null): void
 {
     if ($userId !== null && $userId > 0) {

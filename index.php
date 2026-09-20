@@ -23,17 +23,19 @@ $summaryStmt = $pdo->prepare("SELECT
 $summaryStmt->execute(['today' => today(), 'uid' => $currentUserId]);
 $summary = $summaryStmt->fetch();
 
-function formatRelativeTime(?string $datetime): string
-{
-    if (!$datetime) return '';
-    $ts = strtotime($datetime);
-    if (!$ts) return '';
-    $diff = time() - $ts;
-    if ($diff < 60) return 'Just now';
-    if ($diff < 3600) return floor($diff / 60) . 'm ago';
-    if ($diff < 86400) return floor($diff / 3600) . 'h ago';
-    if ($diff < 86400 * 7) return floor($diff / 86400) . 'd ago';
-    return date('d M Y', $ts);
+if (!function_exists('formatRelativeTime')) {
+    function formatRelativeTime(?string $datetime): string
+    {
+        if (!$datetime) return '';
+        $ts = strtotime($datetime);
+        if (!$ts) return '';
+        $diff = time() - $ts;
+        if ($diff < 60) return 'Just now';
+        if ($diff < 3600) return floor($diff / 60) . 'm ago';
+        if ($diff < 86400) return floor($diff / 3600) . 'h ago';
+        if ($diff < 86400 * 7) return floor($diff / 86400) . 'd ago';
+        return date('d M Y', $ts);
+    }
 }
 
 require_once __DIR__ . '/api_latest_posts.php';

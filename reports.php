@@ -1,5 +1,5 @@
 <?php
-require __DIR__ . '/config.php';
+require_once __DIR__ . '/config.php';
 requireLogin();
 $currentUser = currentUser();
 $pdo = db();
@@ -36,144 +36,364 @@ $selectedUserId = 0;
 if (isAdmin()) {
     $selectedUserId = (int)($_GET['user_id'] ?? 0);
 } else {
-    // Non-admin can only view their own logs
+    // Non-admin can only view their own reports
     $selectedUserId = (int)$currentUser['id'];
 }
 
 $selectedBrandId = (int)($_GET['brand_id'] ?? 0);
-$selectedAction = trim($_GET['action_type'] ?? '');
+$activeTab = in_array($_GET['tab'] ?? '', ['matrix', 'scorecard', 'timeline'], true) ? $_GET['tab'] : 'matrix';
 
-// Build query conditions for logs
-$where = ["DATE(l.created_at) BETWEEN :from_date AND :to_date"];
-$params = [
-    'from_date' => $fromDate,
-    'to_date' => $toDate
-];
-
-if ($selectedUserId > 0) {
-    $where[] = "l.user_id = :user_id";
-    $params['user_id'] = $selectedUserId;
-}
-
-if ($selectedBrandId > 0) {
-    $where[] = "l.brand_id = :brand_id";
-    $params['brand_id'] = $selectedBrandId;
-}
-
-if ($selectedAction !== '' && $selectedAction !== 'all') {
-    $where[] = "l.action_type = :action_type";
-    $params['action_type'] = $selectedAction;
-}
-
-$whereSql = implode(' AND ', $where);
-
-// Handle CSV Export
-if (!empty($_GET['export']) && $_GET['export'] === 'csv') {
-    $exportStmt = $pdo->prepare("
-        SELECT l.created_at, u.name AS user_name, u.username, b.name AS brand_name,
-               l.action_type, l.details, l.ip_address
-        FROM user_activity_logs l
-        LEFT JOIN users u ON u.id = l.user_id
-        LEFT JOIN brands b ON b.id = l.brand_id
-        WHERE {$whereSql}
-        ORDER BY l.created_at DESC
-    ");
-    $exportStmt->execute($params);
-    $rows = $exportStmt->fetchAll();
-
-    header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename="engagement_report_' . $fromDate . '_to_' . $toDate . '.csv"');
-
-    $output = fopen('php://output', 'w');
-    // Add UTF-8 BOM for Excel compatibility
-    fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
-    fputcsv($output, ['Date & Time', 'User Name', 'Username', 'Brand', 'Action Type', 'Details', 'IP Address']);
-
-    foreach ($rows as $row) {
-        fputcsv($output, [
-            $row['created_at'],
-            $row['user_name'] ?? 'System/Deleted',
-            $row['username'] ?? '',
-            $row['brand_name'] ?? 'N/A',
-            $row['action_type'],
-            $row['details'] ?? '',
-            $row['ip_address'] ?? ''
-        ]);
-    }
-    fclose($output);
-    exit;
-}
-
-// KPI Statistics
+// --- QUERY 1: EXECUTIVE KPI SUMMARY ---
 $kpiParams = ['from_date' => $fromDate, 'to_date' => $toDate];
-$userKpiWhere = "";
+$kpiUserWhere = "";
 if ($selectedUserId > 0) {
-    $userKpiWhere = " AND l.user_id = :user_id ";
-    $kpiParams['user_id'] = $selectedUserId;
+    $kpiUserWhere .= " AND d.user_id = :kpi_user ";
+    $kpiParams['kpi_user'] = $selectedUserId;
+}
+if ($selectedBrandId > 0) {
+    $kpiUserWhere .= " AND d.brand_id = :kpi_brand ";
+    $kpiParams['kpi_brand'] = $selectedBrandId;
 }
 
 $kpiStmt = $pdo->prepare("
     SELECT 
-        COUNT(*) AS total_actions,
-        SUM(CASE WHEN l.action_type IN ('link_done', 'all_done') THEN 1 ELSE 0 END) AS links_engaged,
-        SUM(CASE WHEN l.action_type = 'all_done' THEN 1 ELSE 0 END) AS brands_completed,
-        SUM(CASE WHEN l.action_type IN ('post_seen', 'batch_posts_seen') THEN 1 ELSE 0 END) AS posts_seen
-    FROM user_activity_logs l
-    WHERE DATE(l.created_at) BETWEEN :from_date AND :to_date {$userKpiWhere}
+        COUNT(*) AS total_tasks,
+        COALESCE(SUM(d.status = 'completed'), 0) AS completed_tasks,
+        COALESCE(SUM(d.status = 'pending'), 0) AS pending_tasks,
+        COALESCE(SUM(d.status = 'skipped'), 0) AS skipped_tasks,
+        COALESCE(SUM(d.like_done = 1), 0) AS total_likes,
+        COALESCE(SUM(d.comment_done = 1), 0) AS total_comments,
+        COALESCE(SUM(d.share_done = 1), 0) AS total_shares
+    FROM daily_engagements d
+    INNER JOIN brands b ON b.id = d.brand_id AND b.status = 1
+    WHERE d.engagement_date BETWEEN :from_date AND :to_date {$kpiUserWhere}
 ");
 $kpiStmt->execute($kpiParams);
-$kpi = $kpiStmt->fetch() ?: ['total_actions' => 0, 'links_engaged' => 0, 'brands_completed' => 0, 'posts_seen' => 0];
+$kpi = $kpiStmt->fetch() ?: [
+    'total_tasks' => 0,
+    'completed_tasks' => 0,
+    'pending_tasks' => 0,
+    'skipped_tasks' => 0,
+    'total_likes' => 0,
+    'total_comments' => 0,
+    'total_shares' => 0,
+];
 
-// User Leaderboard (for Admin)
-$userSummary = [];
-if (isAdmin()) {
-    $userSummaryStmt = $pdo->prepare("
-        SELECT u.id, u.name, u.username, u.role,
-               COUNT(l.id) AS total_actions,
-               SUM(CASE WHEN l.action_type IN ('link_done', 'all_done') THEN 1 ELSE 0 END) AS links_engaged,
-               SUM(CASE WHEN l.action_type = 'all_done' THEN 1 ELSE 0 END) AS brands_completed,
-               SUM(CASE WHEN l.action_type IN ('post_seen', 'batch_posts_seen') THEN 1 ELSE 0 END) AS posts_seen,
-               MAX(l.created_at) AS last_action_at
-        FROM users u
-        LEFT JOIN user_activity_logs l 
-            ON l.user_id = u.id AND DATE(l.created_at) BETWEEN :from_date AND :to_date
-        GROUP BY u.id
-        ORDER BY total_actions DESC, u.name ASC
-    ");
-    $userSummaryStmt->execute(['from_date' => $fromDate, 'to_date' => $toDate]);
-    $userSummary = $userSummaryStmt->fetchAll();
+// Total social links engaged in this period
+$dseParams = ['from_date' => $fromDate, 'to_date' => $toDate];
+$dseUserWhere = "";
+if ($selectedUserId > 0) {
+    $dseUserWhere .= " AND dse.user_id = :dse_user ";
+    $dseParams['dse_user'] = $selectedUserId;
+}
+if ($selectedBrandId > 0) {
+    $dseUserWhere .= " AND dse.brand_id = :dse_brand ";
+    $dseParams['dse_brand'] = $selectedBrandId;
 }
 
-// Detailed logs query (limit 150)
-$logsStmt = $pdo->prepare("
-    SELECT l.*, u.name AS user_name, u.username, b.name AS brand_name
+$dseTotalStmt = $pdo->prepare("
+    SELECT COUNT(*) 
+    FROM daily_social_engagements dse
+    INNER JOIN brands b ON b.id = dse.brand_id AND b.status = 1
+    WHERE dse.engagement_date BETWEEN :from_date AND :to_date AND dse.is_done = 1 {$dseUserWhere}
+");
+$dseTotalStmt->execute($dseParams);
+$totalLinksEngaged = (int)$dseTotalStmt->fetchColumn();
+
+// Platform breakdown
+$platformStmt = $pdo->prepare("
+    SELECT s.platform, COUNT(dse.id) AS done_count
+    FROM daily_social_engagements dse
+    INNER JOIN social_links s ON s.id = dse.social_link_id
+    INNER JOIN brands b ON b.id = dse.brand_id AND b.status = 1
+    WHERE dse.engagement_date BETWEEN :from_date AND :to_date AND dse.is_done = 1 {$dseUserWhere}
+    GROUP BY s.platform
+    ORDER BY done_count DESC
+");
+$platformStmt->execute($dseParams);
+$platformStats = $platformStmt->fetchAll();
+
+// Calculate completion percentage
+$totalTasksCount = (int)$kpi['total_tasks'];
+$completedTasksCount = (int)$kpi['completed_tasks'];
+$completionRate = $totalTasksCount > 0 ? round(($completedTasksCount / $totalTasksCount) * 100, 1) : 0;
+$progressClass = $completionRate >= 80 ? 'progress-high' : ($completionRate >= 50 ? 'progress-mid' : 'progress-low');
+
+// --- QUERY 2: BRAND ENGAGEMENT MATRIX ---
+$matrixParams = ['from_date' => $fromDate, 'to_date' => $toDate];
+$matrixWhere = ["d.engagement_date BETWEEN :from_date AND :to_date"];
+if ($selectedUserId > 0) {
+    $matrixWhere[] = "d.user_id = :m_user";
+    $matrixParams['m_user'] = $selectedUserId;
+}
+if ($selectedBrandId > 0) {
+    $matrixWhere[] = "d.brand_id = :m_brand";
+    $matrixParams['m_brand'] = $selectedBrandId;
+}
+$matrixWhereSql = implode(' AND ', $matrixWhere);
+
+$matrixStmt = $pdo->prepare("
+    SELECT d.id AS task_id, d.brand_id, d.user_id, d.engagement_date, d.status,
+           d.like_done, d.comment_done, d.share_done, d.snoozed_until, d.completed_at,
+           b.name AS brand_name, b.latest_post_url, b.notes,
+           u.name AS user_name, u.username
+    FROM daily_engagements d
+    INNER JOIN brands b ON b.id = d.brand_id AND b.status = 1
+    INNER JOIN users u ON u.id = d.user_id
+    WHERE {$matrixWhereSql}
+    ORDER BY d.engagement_date DESC, FIELD(d.status, 'completed', 'pending', 'skipped'), b.name ASC
+    LIMIT 300
+");
+$matrixStmt->execute($matrixParams);
+$matrixRows = $matrixStmt->fetchAll();
+
+// Pre-fetch social links for all brands
+$allSocialLinksStmt = $pdo->query("SELECT id, brand_id, platform, url FROM social_links WHERE status = 1 ORDER BY id ASC");
+$allSocialLinks = [];
+foreach ($allSocialLinksStmt->fetchAll() as $sl) {
+    $allSocialLinks[$sl['brand_id']][] = $sl;
+}
+
+// Pre-fetch user social engagements for the selected date range
+$engLinksStmt = $pdo->prepare("
+    SELECT user_id, brand_id, social_link_id, engagement_date, is_done, done_at
+    FROM daily_social_engagements
+    WHERE engagement_date BETWEEN :from_date AND :to_date AND is_done = 1
+");
+$engLinksStmt->execute(['from_date' => $fromDate, 'to_date' => $toDate]);
+$userDoneLinksMap = [];
+foreach ($engLinksStmt->fetchAll() as $row) {
+    $userDoneLinksMap[$row['user_id'] . '_' . $row['engagement_date'] . '_' . $row['social_link_id']] = $row;
+}
+
+// --- QUERY 3: TEAM PERFORMANCE SCORECARD ---
+$scorecardStmt = $pdo->prepare("
+    SELECT u.id, u.name, u.username, u.role,
+           COUNT(DISTINCT d.id) AS total_brands,
+           COUNT(DISTINCT CASE WHEN d.status = 'completed' THEN d.id END) AS completed_brands,
+           COUNT(DISTINCT CASE WHEN d.status = 'pending' THEN d.id END) AS pending_brands,
+           COUNT(DISTINCT CASE WHEN d.status = 'skipped' THEN d.id END) AS skipped_brands,
+           COUNT(DISTINCT dse.id) AS total_links_done,
+           COUNT(DISTINCT upe.id) AS total_posts_seen,
+           MIN(l.created_at) AS first_active_at,
+           MAX(l.created_at) AS last_active_at
+    FROM users u
+    LEFT JOIN daily_engagements d 
+        ON d.user_id = u.id AND d.engagement_date BETWEEN :from_date AND :to_date
+    LEFT JOIN daily_social_engagements dse 
+        ON dse.user_id = u.id AND dse.engagement_date BETWEEN :from_date2 AND :to_date2 AND dse.is_done = 1
+    LEFT JOIN user_post_engagements upe
+        ON upe.user_id = u.id AND DATE(upe.engaged_at) BETWEEN :from_date3 AND :to_date3 AND upe.is_engaged = 1
+    LEFT JOIN user_activity_logs l 
+        ON l.user_id = u.id AND DATE(l.created_at) BETWEEN :from_date4 AND :to_date4
+    WHERE u.status = 1 " . ($selectedUserId > 0 ? " AND u.id = {$selectedUserId} " : "") . "
+    GROUP BY u.id
+    ORDER BY completed_brands DESC, total_links_done DESC, u.name ASC
+");
+$scorecardStmt->execute([
+    'from_date' => $fromDate, 'to_date' => $toDate,
+    'from_date2' => $fromDate, 'to_date2' => $toDate,
+    'from_date3' => $fromDate, 'to_date3' => $toDate,
+    'from_date4' => $fromDate, 'to_date4' => $toDate
+]);
+$teamScorecard = $scorecardStmt->fetchAll();
+
+// --- QUERY 4: HUMANIZED ACTIVITY TIMELINE ---
+$timelineParams = ['from_date' => $fromDate, 'to_date' => $toDate];
+$timelineWhere = ["DATE(l.created_at) BETWEEN :from_date AND :to_date"];
+if ($selectedUserId > 0) {
+    $timelineWhere[] = "l.user_id = :t_user";
+    $timelineParams['t_user'] = $selectedUserId;
+}
+if ($selectedBrandId > 0) {
+    $timelineWhere[] = "l.brand_id = :t_brand";
+    $timelineParams['t_brand'] = $selectedBrandId;
+}
+$timelineWhereSql = implode(' AND ', $timelineWhere);
+
+$timelineStmt = $pdo->prepare("
+    SELECT l.*, u.name AS user_name, u.username, b.name AS brand_name, s.platform
     FROM user_activity_logs l
     LEFT JOIN users u ON u.id = l.user_id
     LEFT JOIN brands b ON b.id = l.brand_id
-    WHERE {$whereSql}
+    LEFT JOIN social_links s ON s.id = l.social_link_id
+    WHERE {$timelineWhereSql}
     ORDER BY l.created_at DESC
-    LIMIT 150
+    LIMIT 120
 ");
-$logsStmt->execute($params);
-$logs = $logsStmt->fetchAll();
+$timelineStmt->execute($timelineParams);
+$timelineRows = $timelineStmt->fetchAll();
 
-// Fetch filter options
-$allUsers = $pdo->query("SELECT id, name, username, role FROM users ORDER BY name ASC")->fetchAll();
-$allBrands = $pdo->query("SELECT id, name FROM brands ORDER BY name ASC")->fetchAll();
+// --- CSV EXPORT LOGIC ---
+if (!empty($_GET['export']) && $_GET['export'] === 'csv') {
+    $filename = "brand_engagement_report_{$fromDate}_to_{$toDate}.csv";
+    header('Content-Type: text/csv; charset=utf-8');
+    header("Content-Disposition: attachment; filename=\"{$filename}\"");
+    $out = fopen('php://output', 'w');
+    fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF)); // UTF-8 BOM
+
+    if ($activeTab === 'matrix') {
+        fputcsv($out, ['Date', 'Brand Name', 'User', 'Status', 'Social Links Progress', 'Like', 'Comment', 'Share', 'Completed At']);
+        foreach ($matrixRows as $r) {
+            $brandLinks = $allSocialLinks[$r['brand_id']] ?? [];
+            $doneCount = 0;
+            foreach ($brandLinks as $bl) {
+                $key = $r['user_id'] . '_' . $r['engagement_date'] . '_' . $bl['id'];
+                if (isset($userDoneLinksMap[$key])) $doneCount++;
+            }
+            fputcsv($out, [
+                $r['engagement_date'],
+                $r['brand_name'],
+                $r['user_name'],
+                ucfirst($r['status']),
+                "{$doneCount}/" . count($brandLinks) . " links done",
+                $r['like_done'] ? 'Yes' : 'No',
+                $r['comment_done'] ? 'Yes' : 'No',
+                $r['share_done'] ? 'Yes' : 'No',
+                $r['completed_at'] ?? 'Pending'
+            ]);
+        }
+    } elseif ($activeTab === 'scorecard') {
+        fputcsv($out, ['User Name', 'Username', 'Role', 'Assigned Brands', 'Completed Brands', 'Completion Rate %', 'Links Engaged', 'Posts Seen', 'First Active Time', 'Last Active Time']);
+        foreach ($teamScorecard as $sc) {
+            $tot = (int)$sc['total_brands'];
+            $comp = (int)$sc['completed_brands'];
+            $rate = $tot > 0 ? round(($comp / $tot) * 100, 1) : 0;
+            fputcsv($out, [
+                $sc['name'],
+                $sc['username'],
+                strtoupper($sc['role']),
+                $tot,
+                $comp,
+                "{$rate}%",
+                $sc['total_links_done'],
+                $sc['total_posts_seen'],
+                $sc['first_active_at'] ?? 'N/A',
+                $sc['last_active_at'] ?? 'N/A'
+            ]);
+        }
+    } else {
+        fputcsv($out, ['Date & Time', 'User', 'Brand', 'Action Story', 'Details']);
+        foreach ($timelineRows as $tl) {
+            fputcsv($out, [
+                $tl['created_at'],
+                $tl['user_name'],
+                $tl['brand_name'] ?? 'N/A',
+                $tl['action_type'],
+                $tl['details'] ?? ''
+            ]);
+        }
+    }
+    fclose($out);
+    exit;
+}
+
+// Helpers
+$allUsers = $pdo->query("SELECT id, name, username, role FROM users WHERE status = 1 ORDER BY name ASC")->fetchAll();
+$allBrands = $pdo->query("SELECT id, name FROM brands WHERE status = 1 ORDER BY name ASC")->fetchAll();
+
+if (!function_exists('humanizeTimeline')) {
+    function humanizeTimeline(array $log): array
+    {
+        $act = $log['action_type'];
+        $brand = e($log['brand_name'] ?? '');
+        $user = e($log['user_name'] ?? 'ব্যবহারকারী');
+        $platform = e($log['platform'] ?? '');
+
+        $iconClass = 'timeline-icon-done';
+        $emoji = '✓';
+        $title = '';
+
+        switch ($act) {
+            case 'all_done':
+                $iconClass = 'timeline-icon-done';
+                $emoji = '✓✓';
+                $title = "<strong>{$user}</strong> ব্র্যান্ড <strong>{$brand}</strong>-এর সমস্ত দৈনিক টাস্ক সম্পন্ন করেছেন।";
+                break;
+            case 'link_done':
+                $iconClass = 'timeline-icon-social';
+                $emoji = '🔗';
+                $title = "<strong>{$user}</strong> ব্র্যান্ড <strong>{$brand}</strong>-এর <strong>{$platform}</strong> লিঙ্ক ভিজিট করেছেন।";
+                break;
+            case 'like':
+                $iconClass = 'timeline-icon-social';
+                $emoji = '👍';
+                $title = "<strong>{$user}</strong> ব্র্যান্ড <strong>{$brand}</strong>-এ লাইক করেছেন।";
+                break;
+            case 'comment':
+                $iconClass = 'timeline-icon-social';
+                $emoji = '💬';
+                $title = "<strong>{$user}</strong> ব্র্যান্ড <strong>{$brand}</strong>-এ মন্তব্য করেছেন।";
+                break;
+            case 'share':
+                $iconClass = 'timeline-icon-social';
+                $emoji = '🔄';
+                $title = "<strong>{$user}</strong> ব্র্যান্ড <strong>{$brand}</strong>-এর কনটেন্ট শেয়ার করেছেন।";
+                break;
+            case 'snooze':
+                $iconClass = 'timeline-icon-snooze';
+                $emoji = '⏱';
+                $mins = 15;
+                if (!empty($log['details'])) {
+                    $json = json_decode($log['details'], true);
+                    if (isset($json['minutes'])) $mins = (int)$json['minutes'];
+                }
+                $title = "<strong>{$user}</strong> ব্র্যান্ড <strong>{$brand}</strong>-এর রিমাইন্ডার {$mins} মিনিটের জন্য স্নুজ করেছেন।";
+                break;
+            case 'skip':
+                $iconClass = 'timeline-icon-skip';
+                $emoji = '⏭';
+                $title = "<strong>{$user}</strong> ব্র্যান্ড <strong>{$brand}</strong> আজকের জন্য বাদ (Skip) দিয়েছেন।";
+                break;
+            case 'post_seen':
+                $iconClass = 'timeline-icon-social';
+                $emoji = '👀';
+                $title = "<strong>{$user}</strong> ব্র্যান্ড <strong>{$brand}</strong>-এর নতুন পোস্ট দেখেছেন।";
+                break;
+            case 'post_engaged':
+                $iconClass = 'timeline-icon-done';
+                $emoji = '🚀';
+                $title = "<strong>{$user}</strong> ব্র্যান্ড <strong>{$brand}</strong>-এর নতুন আপডেটে এনগেজ হয়েছেন।";
+                break;
+            case 'login':
+                $iconClass = 'timeline-icon-auth';
+                $emoji = '🔑';
+                $title = "<strong>{$user}</strong> সিস্টেমে সফলভাবে সাইন ইন করেছেন।";
+                break;
+            case 'logout':
+                $iconClass = 'timeline-icon-auth';
+                $emoji = '🚪';
+                $title = "<strong>{$user}</strong> সিস্টেম থেকে সাইন আউট করেছেন।";
+                break;
+            default:
+                $iconClass = 'timeline-icon-social';
+                $emoji = '•';
+                $details = e($log['details'] ?? $act);
+                $title = "<strong>{$user}</strong> <strong>{$brand}</strong>: {$details}";
+                break;
+        }
+
+        return [
+            'title' => $title,
+            'icon_class' => $iconClass,
+            'emoji' => $emoji
+        ];
+    }
+}
 ?>
 <!doctype html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Engagement Reports · Brand Engagement Reminder</title>
+    <title>Brand Engagement Reports</title>
     <link rel="stylesheet" href="assets/app.css?v=<?= filemtime(__DIR__ . '/assets/app.css') ?>">
 </head>
 <body>
 <header class="topbar">
     <div>
-        <h1>Engagement Reports &amp; Tracking</h1>
-        <p>ইউজারদের সোশ্যাল এনগেজমেন্ট, অ্যাক্টিভিটি ট্র্যাকিং ও পারফরম্যান্স অ্যানালিটিক্স।</p>
+        <h1>Brand Engagement Reports</h1>
+        <p>ব্র্যান্ড এনগেজমেন্ট ম্যাট্রিক্স, টিম পারফরম্যান্স স্কোরকার্ড ও অ্যাক্টিভিটি রিপোর্ট</p>
     </div>
     <div class="topbar-right">
         <nav>
@@ -198,17 +418,18 @@ $allBrands = $pdo->query("SELECT id, name FROM brands ORDER BY name ASC")->fetch
 
 <main class="container">
     <!-- Filter Panel -->
-    <section class="panel filter-panel" style="margin-bottom:22px;">
+    <section class="panel filter-panel" style="margin-bottom:20px;">
         <form method="get" action="reports.php" class="reports-filter-form">
+            <input type="hidden" name="tab" value="<?= e($activeTab) ?>">
             <div class="filter-row">
                 <!-- Preset buttons -->
                 <div class="filter-group">
-                    <label style="margin:0 0 6px;">সময়কাল (Date Period)</label>
+                    <label style="margin:0 0 6px;">সময়কাল (Period)</label>
                     <div class="btn-group-segmented">
-                        <a href="reports.php?preset=today<?= $selectedUserId ? '&user_id='.$selectedUserId : '' ?>" class="btn-segment <?= $datePreset === 'today' ? 'active' : '' ?>">আজ (Today)</a>
-                        <a href="reports.php?preset=yesterday<?= $selectedUserId ? '&user_id='.$selectedUserId : '' ?>" class="btn-segment <?= $datePreset === 'yesterday' ? 'active' : '' ?>">গতকাল</a>
-                        <a href="reports.php?preset=7days<?= $selectedUserId ? '&user_id='.$selectedUserId : '' ?>" class="btn-segment <?= $datePreset === '7days' ? 'active' : '' ?>">গত ৭ দিন</a>
-                        <a href="reports.php?preset=month<?= $selectedUserId ? '&user_id='.$selectedUserId : '' ?>" class="btn-segment <?= $datePreset === 'month' ? 'active' : '' ?>">এই মাস</a>
+                        <a href="reports.php?tab=<?= e($activeTab) ?>&preset=today<?= $selectedUserId ? '&user_id='.$selectedUserId : '' ?><?= $selectedBrandId ? '&brand_id='.$selectedBrandId : '' ?>" class="btn-segment <?= $datePreset === 'today' ? 'active' : '' ?>">আজ (Today)</a>
+                        <a href="reports.php?tab=<?= e($activeTab) ?>&preset=yesterday<?= $selectedUserId ? '&user_id='.$selectedUserId : '' ?><?= $selectedBrandId ? '&brand_id='.$selectedBrandId : '' ?>" class="btn-segment <?= $datePreset === 'yesterday' ? 'active' : '' ?>">গতকাল</a>
+                        <a href="reports.php?tab=<?= e($activeTab) ?>&preset=7days<?= $selectedUserId ? '&user_id='.$selectedUserId : '' ?><?= $selectedBrandId ? '&brand_id='.$selectedBrandId : '' ?>" class="btn-segment <?= $datePreset === '7days' ? 'active' : '' ?>">গত ৭ দিন</a>
+                        <a href="reports.php?tab=<?= e($activeTab) ?>&preset=month<?= $selectedUserId ? '&user_id='.$selectedUserId : '' ?><?= $selectedBrandId ? '&brand_id='.$selectedBrandId : '' ?>" class="btn-segment <?= $datePreset === 'month' ? 'active' : '' ?>">এই মাস</a>
                     </div>
                 </div>
 
@@ -225,9 +446,9 @@ $allBrands = $pdo->query("SELECT id, name FROM brands ORDER BY name ASC")->fetch
 
                 <?php if (isAdmin()): ?>
                     <div class="filter-group">
-                        <label style="margin:0 0 6px;">ইউজার (User)</label>
+                        <label style="margin:0 0 6px;">টিম মেম্বার (User)</label>
                         <select name="user_id" style="margin:0;padding:8px 12px;font-size:13px;">
-                            <option value="0">সকল ইউজার (All Users)</option>
+                            <option value="0">সকল টিম মেম্বার (All Users)</option>
                             <?php foreach ($allUsers as $u): ?>
                                 <option value="<?= (int)$u['id'] ?>" <?= $selectedUserId === (int)$u['id'] ? 'selected' : '' ?>>
                                     <?= e($u['name']) ?> (<?= e($u['username']) ?>)
@@ -254,7 +475,7 @@ $allBrands = $pdo->query("SELECT id, name FROM brands ORDER BY name ASC")->fetch
                     <?php
                         $exportUrl = 'reports.php?' . http_build_query(array_merge($_GET, ['export' => 'csv']));
                     ?>
-                    <a href="<?= e($exportUrl) ?>" class="btn btn-light btn-sm" style="padding:9px 14px;" title="Export filtered logs to CSV file">
+                    <a href="<?= e($exportUrl) ?>" class="btn btn-light btn-sm" style="padding:9px 14px;" title="Export current view to formatted CSV">
                         📥 Export CSV
                     </a>
                 </div>
@@ -262,81 +483,263 @@ $allBrands = $pdo->query("SELECT id, name FROM brands ORDER BY name ASC")->fetch
         </form>
     </section>
 
-    <!-- KPI Summary Grid -->
-    <section class="stats-grid" style="margin-bottom:24px;">
+    <!-- Executive KPI Cards -->
+    <section class="stats-grid" style="margin-bottom:16px;">
         <div class="stat">
-            <span>মোট অ্যাক্টিভিটি (Total Actions)</span>
-            <strong><?= (int)$kpi['total_actions'] ?></strong>
-            <small class="muted" style="font-size:12px;"><?= e(date('d M', strtotime($fromDate))) ?> – <?= e(date('d M Y', strtotime($toDate))) ?></small>
+            <span>কাজের অগ্রগতি (Completion Rate)</span>
+            <strong style="color:var(--primary);"><?= $completionRate ?>%</strong>
+            <div class="progress-bar-container">
+                <div class="progress-bar-fill <?= $progressClass ?>" style="width: <?= min(100, $completionRate) ?>%;"></div>
+            </div>
+            <small class="muted" style="font-size:12px;display:block;margin-top:4px;">
+                <?= $completedTasksCount ?> / <?= $totalTasksCount ?> ব্র্যান্ড সম্পন্ন হয়েছে
+            </small>
         </div>
+
         <div class="stat">
-            <span>লিঙ্ক এনগেজড (Links Engaged)</span>
-            <strong style="color:var(--primary);"><?= (int)$kpi['links_engaged'] ?></strong>
-            <small class="muted" style="font-size:12px;">সোশ্যাল লিঙ্ক ভিজিট / সম্পন্ন</small>
+            <span>সোশ্যাল লিঙ্ক ভিজিট (Links Engaged)</span>
+            <strong style="color:var(--success);"><?= $totalLinksEngaged ?></strong>
+            <small class="muted" style="font-size:12px;">সোশ্যাল পেজ ওপেন ও এনগেজড</small>
         </div>
+
         <div class="stat">
-            <span>ব্র্যান্ড সম্পন্ন (Brands Completed)</span>
-            <strong style="color:var(--success);"><?= (int)$kpi['brands_completed'] ?></strong>
-            <small class="muted" style="font-size:12px;">অল-ডান করা ব্র্যান্ডসমূহ</small>
+            <span>ম্যানুয়াল অ্যাকশন (Likes / Comments)</span>
+            <strong><?= (int)$kpi['total_likes'] + (int)$kpi['total_comments'] + (int)$kpi['total_shares'] ?></strong>
+            <small class="muted" style="font-size:12px;">
+                👍 <?= (int)$kpi['total_likes'] ?> লাইক · 💬 <?= (int)$kpi['total_comments'] ?> কমেন্ট · ↗ <?= (int)$kpi['total_shares'] ?> শেয়ার
+            </small>
         </div>
+
         <div class="stat">
-            <span>নতুন পোস্ট দেখা হয়েছে (Posts Seen)</span>
-            <strong style="color:#d97706;"><?= (int)$kpi['posts_seen'] ?></strong>
-            <small class="muted" style="font-size:12px;">অদেখা পোস্ট দেখে Seen মার্ক করা</small>
+            <span>অবশিষ্ট / পেন্ডিং (Pending Tasks)</span>
+            <strong style="color:var(--warning);"><?= (int)$kpi['pending_tasks'] ?></strong>
+            <small class="muted" style="font-size:12px;">
+                <?= (int)$kpi['skipped_tasks'] ?> টি ব্র্যান্ড স্কিপ করা হয়েছে
+            </small>
         </div>
     </section>
 
-    <?php if (isAdmin() && !empty($userSummary) && $selectedUserId === 0): ?>
-        <!-- Team Performance Leaderboard -->
-        <section class="panel" style="margin-bottom:24px;">
+    <!-- Platform Breakdown Pills -->
+    <?php if (!empty($platformStats)): ?>
+        <div class="platform-stats-row">
+            <span class="muted" style="font-size:13px;font-weight:600;">প্ল্যাটফর্ম ভিত্তিক ভিজিট:</span>
+            <?php foreach ($platformStats as $ps): 
+                $platKey = strtolower(preg_replace('/[^a-z0-9]/i', '', $ps['platform']));
+            ?>
+                <div class="platform-stat-badge">
+                    <span class="platform-pill platform-<?= e($platKey) ?>"><?= e($ps['platform']) ?></span>
+                    <strong><?= (int)$ps['done_count'] ?></strong> টি লিঙ্ক
+                </div>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+
+    <!-- View Switcher Tabs -->
+    <div class="report-tabs">
+        <a href="reports.php?tab=matrix&preset=<?= e($datePreset) ?>&from=<?= e($fromDate) ?>&to=<?= e($toDate) ?><?= $selectedUserId ? '&user_id='.$selectedUserId : '' ?><?= $selectedBrandId ? '&brand_id='.$selectedBrandId : '' ?>"
+           class="report-tab <?= $activeTab === 'matrix' ? 'active' : '' ?>">
+            📋 Brand Engagement Matrix <span class="report-tab-badge"><?= count($matrixRows) ?></span>
+        </a>
+
+        <?php if (isAdmin()): ?>
+            <a href="reports.php?tab=scorecard&preset=<?= e($datePreset) ?>&from=<?= e($fromDate) ?>&to=<?= e($toDate) ?><?= $selectedUserId ? '&user_id='.$selectedUserId : '' ?><?= $selectedBrandId ? '&brand_id='.$selectedBrandId : '' ?>"
+               class="report-tab <?= $activeTab === 'scorecard' ? 'active' : '' ?>">
+                👥 Team Scorecard <span class="report-tab-badge"><?= count($teamScorecard) ?></span>
+            </a>
+        <?php endif; ?>
+
+        <a href="reports.php?tab=timeline&preset=<?= e($datePreset) ?>&from=<?= e($fromDate) ?>&to=<?= e($toDate) ?><?= $selectedUserId ? '&user_id='.$selectedUserId : '' ?><?= $selectedBrandId ? '&brand_id='.$selectedBrandId : '' ?>"
+           class="report-tab <?= $activeTab === 'timeline' ? 'active' : '' ?>">
+            🕒 Activity Timeline <span class="report-tab-badge"><?= count($timelineRows) ?></span>
+        </a>
+    </div>
+
+    <!-- TAB 1: BRAND ENGAGEMENT MATRIX -->
+    <?php if ($activeTab === 'matrix'): ?>
+        <section class="panel">
             <div class="panel-header-row">
                 <div>
-                    <h2 style="margin:0;">👥 User Performance Summary</h2>
-                    <p class="muted" style="margin:4px 0 0;font-size:13px;">নির্বাচিত সময়সীমায় প্রত্যেক ইউজারের কাজের সংক্ষিপ্ত হিসাব</p>
+                    <h2 style="margin:0;">Brand Engagement Matrix</h2>
+                    <p class="muted" style="margin:4px 0 0;font-size:13px;">
+                        তারিখ ও ব্র্যান্ড অনুযায়ী প্রতিটি সোশ্যাল লিঙ্ক ও এনগেজমেন্টের সার্বিক অগ্রগতি
+                    </p>
                 </div>
             </div>
-            <div class="table-responsive" style="overflow-x:auto;margin-top:12px;">
+
+            <?php if (empty($matrixRows)): ?>
+                <div class="empty-state" style="padding:40px 20px;margin-top:14px;">
+                    <h3>কোনো ব্র্যান্ড এনগেজমেন্টের তথ্য পাওয়া যায়নি</h3>
+                    <p class="muted">নির্বাচিত সময় ও ফিল্টারে কোনো ব্র্যান্ডের কাজ রেকর্ড হয়নি।</p>
+                </div>
+            <?php else: ?>
+                <div class="table-responsive" style="overflow-x:auto;margin-top:14px;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Brand</th>
+                                <?php if (isAdmin() && $selectedUserId === 0): ?><th>User</th><?php endif; ?>
+                                <th>Status</th>
+                                <th>Social Profiles Done</th>
+                                <th style="text-align:center;">Actions (Like / Comment)</th>
+                                <th style="text-align:right;">Completed Time</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($matrixRows as $r): 
+                                $brandLinks = $allSocialLinks[$r['brand_id']] ?? [];
+                                $totalLinks = count($brandLinks);
+                                $doneCount = 0;
+                                foreach ($brandLinks as $bl) {
+                                    $k = $r['user_id'] . '_' . $r['engagement_date'] . '_' . $bl['id'];
+                                    if (isset($userDoneLinksMap[$k])) $doneCount++;
+                                }
+
+                                $statusPillClass = 'status-pending';
+                                $statusLabel = 'Pending';
+                                if ($r['status'] === 'completed') {
+                                    $statusPillClass = 'status-completed';
+                                    $statusLabel = '✓ Completed';
+                                } elseif ($r['status'] === 'skipped') {
+                                    $statusPillClass = 'status-skipped';
+                                    $statusLabel = '⏭ Skipped';
+                                } elseif ($doneCount > 0) {
+                                    $statusPillClass = 'status-pending';
+                                    $statusLabel = "In Progress ({$doneCount}/{$totalLinks})";
+                                }
+                            ?>
+                                <tr>
+                                    <td style="white-space:nowrap;font-size:13px;">
+                                        <strong><?= e(date('d M Y', strtotime($r['engagement_date']))) ?></strong>
+                                    </td>
+                                    <td>
+                                        <div style="font-weight:700;font-size:14px;color:#0f172a;"><?= e($r['brand_name']) ?></div>
+                                        <?php if (!empty($r['notes'])): ?>
+                                            <div class="muted" style="font-size:12px;"><?= e($r['notes']) ?></div>
+                                        <?php endif; ?>
+                                    </td>
+                                    <?php if (isAdmin() && $selectedUserId === 0): ?>
+                                        <td>
+                                            <strong><?= e($r['user_name']) ?></strong>
+                                            <div class="muted" style="font-size:11px;">@<?= e($r['username']) ?></div>
+                                        </td>
+                                    <?php endif; ?>
+                                    <td>
+                                        <span class="status-pill <?= e($statusPillClass) ?>">
+                                            <?= e($statusLabel) ?>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <?php if ($totalLinks === 0): ?>
+                                            <span class="muted" style="font-size:12px;">No social links configured</span>
+                                        <?php else: ?>
+                                            <div class="platform-matrix-list">
+                                                <?php foreach ($brandLinks as $bl): 
+                                                    $k = $r['user_id'] . '_' . $r['engagement_date'] . '_' . $bl['id'];
+                                                    $isDone = isset($userDoneLinksMap[$k]);
+                                                ?>
+                                                    <span class="platform-matrix-pill <?= $isDone ? 'is-done' : 'is-pending' ?>"
+                                                          title="<?= $isDone ? 'আজ সম্পন্ন হয়েছে' : 'পেন্ডিং' ?>">
+                                                        <?= e($bl['platform']) ?> <?= $isDone ? '✓' : '⏳' ?>
+                                                    </span>
+                                                <?php endforeach; ?>
+                                            </div>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td style="text-align:center;">
+                                        <div class="matrix-actions-checklist">
+                                            <span class="matrix-action-chip <?= $r['like_done'] ? 'done' : 'pending' ?>" title="Like">👍 <?= $r['like_done'] ? '✓' : '—' ?></span>
+                                            <span class="matrix-action-chip <?= $r['comment_done'] ? 'done' : 'pending' ?>" title="Comment">💬 <?= $r['comment_done'] ? '✓' : '—' ?></span>
+                                            <span class="matrix-action-chip <?= $r['share_done'] ? 'done' : 'pending' ?>" title="Share">↗ <?= $r['share_done'] ? '✓' : '—' ?></span>
+                                        </div>
+                                    </td>
+                                    <td style="text-align:right;white-space:nowrap;font-size:12.5px;color:var(--muted);">
+                                        <?php if ($r['completed_at']): ?>
+                                            <strong style="color:#059669;"><?= e(date('h:i A', strtotime($r['completed_at']))) ?></strong>
+                                        <?php elseif ($r['snoozed_until']): ?>
+                                            <span style="color:var(--warning);">Snoozed till <?= e(date('h:i A', strtotime($r['snoozed_until']))) ?></span>
+                                        <?php else: ?>
+                                            <span class="muted">Not done yet</span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </section>
+    <?php endif; ?>
+
+    <!-- TAB 2: TEAM PERFORMANCE SCORECARD -->
+    <?php if ($activeTab === 'scorecard' && isAdmin()): ?>
+        <section class="panel">
+            <div class="panel-header-row">
+                <div>
+                    <h2 style="margin:0;">Team Performance Scorecard</h2>
+                    <p class="muted" style="margin:4px 0 0;font-size:13px;">
+                        নির্বাচিত সময়সীমায় প্রত্যেক টিম মেম্বারের পারফরম্যান্স ও কাজের তুলনামূলক চিত্র
+                    </p>
+                </div>
+            </div>
+
+            <div class="table-responsive" style="overflow-x:auto;margin-top:14px;">
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>ব্যবহারকারী (User)</th>
+                            <th>Team Member</th>
                             <th>Role</th>
-                            <th style="text-align:center;">মোট অ্যাকশন</th>
-                            <th style="text-align:center;">লিঙ্ক এনগেজড</th>
-                            <th style="text-align:center;">ব্র্যান্ড সম্পন্ন</th>
-                            <th style="text-align:center;">পোস্ট দেখা</th>
-                            <th>সর্বশেষ কাজ</th>
-                            <th style="text-align:right;">ডিটেইলস</th>
+                            <th style="text-align:center;">Assigned Brands</th>
+                            <th style="text-align:center;">Completed</th>
+                            <th style="width:200px;">Progress</th>
+                            <th style="text-align:center;">Links Engaged</th>
+                            <th style="text-align:center;">Posts Seen</th>
+                            <th>Active Hours</th>
+                            <th style="text-align:right;">Action</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($userSummary as $us): ?>
+                        <?php foreach ($teamScorecard as $sc): 
+                            $tot = (int)$sc['total_brands'];
+                            $comp = (int)$sc['completed_brands'];
+                            $rate = $tot > 0 ? round(($comp / $tot) * 100, 1) : 0;
+                            $barClass = $rate >= 80 ? 'progress-high' : ($rate >= 50 ? 'progress-mid' : 'progress-low');
+                        ?>
                             <tr>
                                 <td>
-                                    <strong><?= e($us['name']) ?></strong>
-                                    <div class="muted" style="font-size:12px;">@<?= e($us['username']) ?></div>
+                                    <div style="font-weight:700;font-size:14px;color:#0f172a;"><?= e($sc['name']) ?></div>
+                                    <div class="muted" style="font-size:11.5px;">@<?= e($sc['username']) ?></div>
                                 </td>
                                 <td>
-                                    <span class="role-badge role-<?= e($us['role']) ?>"><?= e(strtoupper($us['role'])) ?></span>
+                                    <span class="role-badge role-<?= e($sc['role']) ?>"><?= e(strtoupper($sc['role'])) ?></span>
                                 </td>
-                                <td style="text-align:center;font-weight:700;font-size:16px;">
-                                    <?= (int)$us['total_actions'] ?>
+                                <td style="text-align:center;font-weight:600;"><?= $tot ?></td>
+                                <td style="text-align:center;font-weight:700;color:#059669;font-size:15px;"><?= $comp ?></td>
+                                <td>
+                                    <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;margin-bottom:2px;">
+                                        <span><?= $rate ?>%</span>
+                                        <span class="muted"><?= $comp ?>/<?= $tot ?></span>
+                                    </div>
+                                    <div class="progress-bar-container">
+                                        <div class="progress-bar-fill <?= $barClass ?>" style="width:<?= min(100, $rate) ?>%;"></div>
+                                    </div>
                                 </td>
-                                <td style="text-align:center;color:var(--primary);font-weight:600;">
-                                    <?= (int)$us['links_engaged'] ?>
+                                <td style="text-align:center;font-weight:600;color:var(--primary);font-size:14px;">
+                                    <?= (int)$sc['total_links_done'] ?>
                                 </td>
-                                <td style="text-align:center;color:var(--success);font-weight:600;">
-                                    <?= (int)$us['brands_completed'] ?>
+                                <td style="text-align:center;font-weight:600;color:#d97706;font-size:14px;">
+                                    <?= (int)$sc['total_posts_seen'] ?>
                                 </td>
-                                <td style="text-align:center;color:#d97706;font-weight:600;">
-                                    <?= (int)$us['posts_seen'] ?>
-                                </td>
-                                <td style="font-size:12.5px;color:var(--muted);">
-                                    <?= $us['last_action_at'] ? e(date('d M, h:i A', strtotime($us['last_action_at']))) : 'কোনো অ্যাকশন নেই' ?>
+                                <td style="font-size:12px;color:var(--muted);white-space:nowrap;">
+                                    <?php if (!empty($sc['first_active_at'])): ?>
+                                        <?= e(date('h:i A', strtotime($sc['first_active_at']))) ?> – <?= e(date('h:i A', strtotime($sc['last_active_at']))) ?>
+                                    <?php else: ?>
+                                        <span class="muted">No activity</span>
+                                    <?php endif; ?>
                                 </td>
                                 <td style="text-align:right;">
-                                    <a class="btn btn-light btn-sm" href="reports.php?preset=<?= e($datePreset) ?>&from=<?= e($fromDate) ?>&to=<?= e($toDate) ?>&user_id=<?= (int)$us['id'] ?>">
-                                        View Logs ➔
+                                    <a class="btn btn-light btn-sm" href="reports.php?tab=matrix&preset=<?= e($datePreset) ?>&from=<?= e($fromDate) ?>&to=<?= e($toDate) ?>&user_id=<?= (int)$sc['id'] ?>">
+                                        View Matrix ➔
                                     </a>
                                 </td>
                             </tr>
@@ -347,122 +750,52 @@ $allBrands = $pdo->query("SELECT id, name FROM brands ORDER BY name ASC")->fetch
         </section>
     <?php endif; ?>
 
-    <!-- Detailed Activity Logs -->
-    <section class="panel">
-        <div class="panel-header-row">
-            <div>
-                <h2 style="margin:0;">📜 Activity Log History <span class="counter-badge"><?= count($logs) ?></span></h2>
-                <p class="muted" style="margin:4px 0 0;font-size:13px;">
-                    <?php if ($selectedUserId > 0): ?>
-                        নির্দিষ্ট ইউজারের কার্যক্রম দেখা হচ্ছে
-                    <?php else: ?>
-                        সকল ইউজারের সাম্প্রতিক অ্যাক্টিভিটি টাইমলাইন (সর্বোচ্চ ১৫০টি)
-                    <?php endif; ?>
-                </p>
+    <!-- TAB 3: HUMANIZED ACTIVITY TIMELINE -->
+    <?php if ($activeTab === 'timeline'): ?>
+        <section class="panel">
+            <div class="panel-header-row">
+                <div>
+                    <h2 style="margin:0;">Activity Story Timeline</h2>
+                    <p class="muted" style="margin:4px 0 0;font-size:13px;">
+                        ইউজারদের প্রতিটি অ্যাকশনের মানবিকভাবে পাঠযোগ্য টাইমলাইন
+                    </p>
+                </div>
             </div>
-        </div>
 
-        <?php if (empty($logs)): ?>
-            <div class="empty-state" style="padding:40px 20px;margin-top:14px;">
-                <h3>কোনো অ্যাক্টিভিটি রেকর্ড পাওয়া যায়নি</h3>
-                <p class="muted">নির্বাচিত সময় ও ফিল্টারে কোনো ট্র্যাকিং লগ সংরক্ষিত হয়নি।</p>
-            </div>
-        <?php else: ?>
-            <div class="table-responsive" style="overflow-x:auto;margin-top:14px;">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th style="width:160px;">Date &amp; Time</th>
-                            <?php if (isAdmin()): ?><th>User</th><?php endif; ?>
-                            <th>Brand</th>
-                            <th>Action Type</th>
-                            <th>Details</th>
-                            <th style="width:100px;">IP Address</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($logs as $log): 
-                            $act = $log['action_type'];
-                            $badgeClass = 'status-pending';
-                            $label = $act;
-
-                            switch ($act) {
-                                case 'link_done':
-                                    $badgeClass = 'status-completed';
-                                    $label = '✓ Link Done';
-                                    break;
-                                case 'all_done':
-                                    $badgeClass = 'status-completed';
-                                    $label = '🎉 All Done';
-                                    break;
-                                case 'post_seen':
-                                case 'batch_posts_seen':
-                                    $badgeClass = 'badge-post-seen';
-                                    $label = '📢 Post Seen';
-                                    break;
-                                case 'like':
-                                case 'comment':
-                                case 'share':
-                                    $badgeClass = 'badge-interaction';
-                                    $label = ucfirst($act);
-                                    break;
-                                case 'snooze':
-                                    $badgeClass = 'status-pending';
-                                    $label = '⏳ Snoozed';
-                                    break;
-                                case 'skip':
-                                    $badgeClass = 'status-skipped';
-                                    $label = '⏭ Skipped';
-                                    break;
-                                case 'login':
-                                    $badgeClass = 'badge-auth';
-                                    $label = '🔑 Login';
-                                    break;
-                                case 'logout':
-                                    $badgeClass = 'badge-auth';
-                                    $label = '🚪 Logout';
-                                    break;
-                            }
-                        ?>
-                            <tr>
-                                <td style="font-size:12.5px;color:#475569;white-space:nowrap;">
-                                    <strong><?= e(date('d M Y', strtotime($log['created_at']))) ?></strong><br>
-                                    <span class="muted"><?= e(date('h:i:s A', strtotime($log['created_at']))) ?></span>
-                                </td>
-                                <?php if (isAdmin()): ?>
-                                    <td>
-                                        <strong><?= e($log['user_name'] ?? 'System') ?></strong>
-                                        <?php if (!empty($log['username'])): ?>
-                                            <div class="muted" style="font-size:11px;">@<?= e($log['username']) ?></div>
-                                        <?php endif; ?>
-                                    </td>
-                                <?php endif; ?>
-                                <td>
-                                    <?php if (!empty($log['brand_name'])): ?>
-                                        <strong><?= e($log['brand_name']) ?></strong>
-                                    <?php else: ?>
-                                        <span class="muted">—</span>
+            <?php if (empty($timelineRows)): ?>
+                <div class="empty-state" style="padding:40px 20px;margin-top:14px;">
+                    <h3>কোনো অ্যাক্টিভিটি টাইমলাইন পাওয়া যায়নি</h3>
+                    <p class="muted">নির্বাচিত সময় ও ফিল্টারে কোনো অ্যাকশন রেকর্ড হয়নি।</p>
+                </div>
+            <?php else: ?>
+                <div class="timeline-list">
+                    <?php foreach ($timelineRows as $tl): 
+                        $story = humanizeTimeline($tl);
+                        $createdTs = strtotime($tl['created_at']);
+                        $relativeTime = formatRelativeTime($tl['created_at']);
+                    ?>
+                        <div class="timeline-item">
+                            <div class="timeline-icon-box <?= e($story['icon_class']) ?>">
+                                <?= $story['emoji'] ?>
+                            </div>
+                            <div class="timeline-content">
+                                <div class="timeline-title">
+                                    <?= $story['title'] ?>
+                                </div>
+                                <div class="timeline-meta">
+                                    <span>🕒 <?= e(date('d M Y, h:i A', $createdTs)) ?></span>
+                                    <span>· <?= e($relativeTime) ?></span>
+                                    <?php if (!empty($tl['ip_address'])): ?>
+                                        <span style="opacity:0.6;">(IP: <?= e($tl['ip_address']) ?>)</span>
                                     <?php endif; ?>
-                                </td>
-                                <td>
-                                    <span class="action-pill <?= e($badgeClass) ?>">
-                                        <?= e($label) ?>
-                                    </span>
-                                </td>
-                                <td style="font-size:13px;line-height:1.4;">
-                                    <?= e($log['details'] ?? '—') ?>
-                                </td>
-                                <td style="font-size:12px;color:var(--muted);white-space:nowrap;">
-                                    <code><?= e($log['ip_address'] ?? '127.0.0.1') ?></code>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-        <?php endif; ?>
-    </section>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+        </section>
+    <?php endif; ?>
 </main>
 </body>
 </html>
-
