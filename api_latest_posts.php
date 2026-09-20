@@ -32,13 +32,17 @@ function getLatestUnseenPosts(PDO $pdo, int $limit = 50, ?int $userId = null): a
                p.title, p.post_url, p.content_snippet, p.published_at, p.created_at
         FROM brand_posts p
         INNER JOIN brands b ON b.id = p.brand_id AND b.status = 1
+        INNER JOIN users u ON u.id = :user_id
         LEFT JOIN social_links s ON s.id = p.social_link_id
-        LEFT JOIN user_post_engagements upe ON upe.post_id = p.id AND upe.user_id = :user_id
+        LEFT JOIN user_post_engagements upe ON upe.post_id = p.id AND upe.user_id = :user_id2
         WHERE (upe.id IS NULL OR upe.is_engaged = 0)
+          AND p.created_at >= u.created_at
+          AND (p.published_at IS NULL OR p.published_at >= u.created_at)
         ORDER BY p.published_at DESC, p.id DESC
         LIMIT :lim
     ");
     $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
+    $stmt->bindValue(':user_id2', $userId, PDO::PARAM_INT);
     $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
     $stmt->execute();
     $posts = $stmt->fetchAll();

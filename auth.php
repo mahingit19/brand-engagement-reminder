@@ -268,6 +268,25 @@ function ensureAuthSchema(PDO $pdo): void
         $seedStmt->execute(['pass' => $defaultAdminPass]);
     }
 
+    // 8. Performance index on brand_posts (created_at, published_at)
+    try {
+        $idxCheck = $pdo->query("SHOW INDEX FROM brand_posts WHERE Key_name = 'idx_posts_created_pub'")->fetch();
+        if (!$idxCheck) {
+            $pdo->exec("ALTER TABLE brand_posts ADD INDEX idx_posts_created_pub (created_at, published_at)");
+        }
+    } catch (\Throwable $e) {}
+
+    // 9. Backfill user_post_engagements for historical posts created before existing users were added
+    try {
+        $pdo->exec("
+            INSERT IGNORE INTO user_post_engagements (user_id, post_id, is_notified, is_engaged, engaged_at)
+            SELECT u.id, p.id, 1, 1, NOW()
+            FROM users u
+            CROSS JOIN brand_posts p
+            WHERE p.created_at < u.created_at OR (p.published_at IS NOT NULL AND p.published_at < u.created_at)
+        ");
+    } catch (\Throwable $e) {}
+
     $initialized = true;
 }
 

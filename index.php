@@ -47,12 +47,19 @@ $tasksStmt = $pdo->prepare("SELECT d.*, b.name, b.latest_post_url, b.rss_feed_ur
     FROM daily_engagements d
     INNER JOIN brands b ON b.id = d.brand_id
     LEFT JOIN brand_posts p ON p.id = (
-        SELECT bp.id FROM brand_posts bp WHERE bp.brand_id = b.id ORDER BY bp.published_at DESC, bp.id DESC LIMIT 1
+        SELECT bp.id 
+        FROM brand_posts bp 
+        INNER JOIN users u ON u.id = :uid_sub
+        WHERE bp.brand_id = b.id 
+          AND bp.created_at >= u.created_at
+          AND (bp.published_at IS NULL OR bp.published_at >= u.created_at)
+        ORDER BY bp.published_at DESC, bp.id DESC 
+        LIMIT 1
     )
     LEFT JOIN social_links s ON s.id = p.social_link_id
     WHERE d.engagement_date = :today AND d.user_id = :uid AND b.status = 1
     ORDER BY FIELD(d.status, 'pending','completed','skipped'), b.name ASC");
-$tasksStmt->execute(['today' => today(), 'uid' => $currentUserId]);
+$tasksStmt->execute(['today' => today(), 'uid' => $currentUserId, 'uid_sub' => $currentUserId]);
 $tasks = $tasksStmt->fetchAll();
 
 $linkStmt = $pdo->prepare("

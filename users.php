@@ -43,6 +43,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'role' => $role
                 ]);
                 $newId = (int)$pdo->lastInsertId();
+
+                // 1. Initialize today's tasks for the newly created user
+                ensureTodayTasks($pdo, $newId);
+
+                // 2. Pre-mark all existing posts as seen/engaged so historical posts are never shown as new
+                $pdo->prepare("
+                    INSERT INTO user_post_engagements (user_id, post_id, is_notified, is_engaged, engaged_at)
+                    SELECT :new_uid, id, 1, 1, NOW()
+                    FROM brand_posts
+                ")->execute(['new_uid' => $newId]);
+
                 logUserActivity($pdo, (int)$currentUser['id'], 'create_user', null, null, null, "Created user '{$username}' ({$name}) as {$role}");
                 header('Location: users.php?msg=created');
                 exit;
