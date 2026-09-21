@@ -159,6 +159,7 @@ $users = $pdo->query("SELECT * FROM users ORDER BY role ASC, name ASC")->fetchAl
         <nav>
             <a href="index.php">Dashboard</a>
             <a href="reports.php">Reports</a>
+            <a href="leaderboard.php">Leaderboard</a>
             <?php if (isAdmin()): ?>
                 <a href="brands.php">Brands</a>
                 <a href="settings.php">Settings</a>

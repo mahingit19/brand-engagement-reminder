@@ -390,6 +390,7 @@ if (!function_exists('humanizeTimeline')) {
         <nav>
             <a href="index.php">Dashboard</a>
             <a href="reports.php" class="active">Reports</a>
+            <a href="leaderboard.php">Leaderboard</a>
             <?php if (isAdmin()): ?>
                 <a href="brands.php">Brands</a>
                 <a href="settings.php">Settings</a>

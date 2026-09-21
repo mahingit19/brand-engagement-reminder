@@ -143,6 +143,7 @@ ORDER BY b.status DESC, b.name ASC")->fetchAll();
         <nav>
             <a href="index.php">Dashboard</a>
             <a href="reports.php">Reports</a>
+            <a href="leaderboard.php">Leaderboard</a>
             <?php if (isAdmin()): ?>
                 <a href="brands.php" class="active">Brands</a>
                 <a href="settings.php">Settings</a>

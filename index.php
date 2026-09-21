@@ -182,6 +182,7 @@ if ($pendingCount === 0) {
         <nav>
             <a href="index.php" class="active">Dashboard</a>
             <a href="reports.php">Reports</a>
+            <a href="leaderboard.php">Leaderboard</a>
             <?php if (isAdmin()): ?>
                 <a href="brands.php">Brands</a>
                 <a href="settings.php">Settings</a>
