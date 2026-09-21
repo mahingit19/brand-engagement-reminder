@@ -475,38 +475,44 @@ if (!function_exists('humanizeTimeline')) {
     </section>
 
     <!-- Executive KPI Cards -->
-    <section class="stats-grid" style="margin-bottom:16px;">
-        <div class="stat">
-            <span>কাজের অগ্রগতি (Completion Rate)</span>
-            <strong style="color:var(--primary);"><?= $completionRate ?>%</strong>
-            <div class="progress-bar-container">
-                <div class="progress-bar-fill <?= $progressClass ?>" style="width: <?= min(100, $completionRate) ?>%;"></div>
+    <section class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-icon kpi-rate">📊</div>
+            <div class="kpi-body">
+                <div class="kpi-label">কাজের অগ্রগতি</div>
+                <div class="kpi-value" style="color:var(--primary);"><?= $completionRate ?>%</div>
+                <div class="progress-bar-container" style="margin:6px 0 4px;">
+                    <div class="progress-bar-fill <?= $progressClass ?>" style="width: <?= min(100, $completionRate) ?>%;"></div>
+                </div>
+                <div class="kpi-sub"><?= $completedTasksCount ?> টি ব্র্যান্ড সম্পন্ন, মোট <?= $totalTasksCount ?> টি</div>
             </div>
-            <small class="muted" style="font-size:12px;display:block;margin-top:4px;">
-                <?= $completedTasksCount ?> / <?= $totalTasksCount ?> ব্র্যান্ড সম্পন্ন হয়েছে
-            </small>
         </div>
 
-        <div class="stat">
-            <span>সোশ্যাল লিঙ্ক ভিজিট (Links Engaged)</span>
-            <strong style="color:var(--success);"><?= $totalLinksEngaged ?></strong>
-            <small class="muted" style="font-size:12px;">সোশ্যাল পেজ ওপেন ও এনগেজড</small>
+        <div class="kpi-card">
+            <div class="kpi-icon kpi-links">🔗</div>
+            <div class="kpi-body">
+                <div class="kpi-label">সোশ্যাল লিঙ্ক ভিজিট</div>
+                <div class="kpi-value" style="color:var(--success);"><?= $totalLinksEngaged ?></div>
+                <div class="kpi-sub">সোশ্যাল পেজ ওপেন ও এনগেজ করা হয়েছে</div>
+            </div>
         </div>
 
-        <div class="stat">
-            <span>সম্পন্ন ব্র্যান্ড (Completed Brands)</span>
-            <strong style="color:var(--success);"><?= $completedTasksCount ?> <span style="font-size:15px;color:var(--muted);font-weight:600;">/ <?= $totalTasksCount ?></span></strong>
-            <small class="muted" style="font-size:12px;">
-                মোট ব্র্যান্ডের মধ্যে সম্পন্ন হয়েছে
-            </small>
+        <div class="kpi-card">
+            <div class="kpi-icon kpi-done">✅</div>
+            <div class="kpi-body">
+                <div class="kpi-label">সম্পন্ন ব্র্যান্ড</div>
+                <div class="kpi-value" style="color:var(--success);"><?= $completedTasksCount ?> <span style="font-size:16px;color:var(--muted);font-weight:600;">/ <?= $totalTasksCount ?></span></div>
+                <div class="kpi-sub">মোট ব্র্যান্ডের মধ্যে সম্পন্ন হয়েছে</div>
+            </div>
         </div>
 
-        <div class="stat">
-            <span>অবশিষ্ট / পেন্ডিং (Pending Tasks)</span>
-            <strong style="color:var(--warning);"><?= (int)$kpi['pending_tasks'] ?></strong>
-            <small class="muted" style="font-size:12px;">
-                <?= (int)$kpi['skipped_tasks'] ?> টি ব্র্যান্ড স্কিপ করা হয়েছে
-            </small>
+        <div class="kpi-card">
+            <div class="kpi-icon kpi-pending">⏳</div>
+            <div class="kpi-body">
+                <div class="kpi-label">অবশিষ্ট / পেন্ডিং</div>
+                <div class="kpi-value" style="color:var(--warning);"><?= (int)$kpi['pending_tasks'] ?></div>
+                <div class="kpi-sub"><?= (int)$kpi['skipped_tasks'] ?> টি ব্র্যান্ড স্কিপ করা হয়েছে</div>
+            </div>
         </div>
     </section>
 
@@ -529,19 +535,19 @@ if (!function_exists('humanizeTimeline')) {
     <div class="report-tabs">
         <a href="reports.php?tab=matrix&preset=<?= e($datePreset) ?>&from=<?= e($fromDate) ?>&to=<?= e($toDate) ?><?= $selectedUserId ? '&user_id='.$selectedUserId : '' ?><?= $selectedBrandId ? '&brand_id='.$selectedBrandId : '' ?>"
            class="report-tab <?= $activeTab === 'matrix' ? 'active' : '' ?>">
-            📋 Brand Engagement Matrix <span class="report-tab-badge"><?= count($matrixRows) ?></span>
+            📋 ব্র্যান্ড ম্যাট্রিক্স <span class="report-tab-badge"><?= count($matrixRows) ?></span>
         </a>
 
         <?php if (isAdmin()): ?>
             <a href="reports.php?tab=scorecard&preset=<?= e($datePreset) ?>&from=<?= e($fromDate) ?>&to=<?= e($toDate) ?><?= $selectedUserId ? '&user_id='.$selectedUserId : '' ?><?= $selectedBrandId ? '&brand_id='.$selectedBrandId : '' ?>"
                class="report-tab <?= $activeTab === 'scorecard' ? 'active' : '' ?>">
-                👥 Team Scorecard <span class="report-tab-badge"><?= count($teamScorecard) ?></span>
+                👥 টিম স্কোরকার্ড <span class="report-tab-badge"><?= count($teamScorecard) ?></span>
             </a>
         <?php endif; ?>
 
         <a href="reports.php?tab=timeline&preset=<?= e($datePreset) ?>&from=<?= e($fromDate) ?>&to=<?= e($toDate) ?><?= $selectedUserId ? '&user_id='.$selectedUserId : '' ?><?= $selectedBrandId ? '&brand_id='.$selectedBrandId : '' ?>"
            class="report-tab <?= $activeTab === 'timeline' ? 'active' : '' ?>">
-            🕒 Activity Timeline <span class="report-tab-badge"><?= count($timelineRows) ?></span>
+            🕒 অ্যাক্টিভিটি টাইমলাইন <span class="report-tab-badge"><?= count($timelineRows) ?></span>
         </a>
     </div>
 
@@ -550,33 +556,37 @@ if (!function_exists('humanizeTimeline')) {
         <section class="panel">
             <div class="panel-header-row">
                 <div>
-                    <h2 style="margin:0;">Brand Engagement Matrix</h2>
+                    <h2 style="margin:0;">📋 ব্র্যান্ড এনগেজমেন্ট ম্যাট্রিক্স</h2>
                     <p class="muted" style="margin:4px 0 0;font-size:13px;">
-                        তারিখ ও ব্র্যান্ড অনুযায়ী প্রতিটি সোশ্যাল লিঙ্ক ও এনগেজমেন্টের সার্বিক অগ্রগতি
+                        তারিখ ও ব্র্যান্ড অনুযায়ী প্রতিটি সোশ্যাল লিঙ্ক ও এনগেজমেন্টের সার্বিক অগ্রগতি
                     </p>
                 </div>
             </div>
 
             <?php if (empty($matrixRows)): ?>
                 <div class="empty-state" style="padding:40px 20px;margin-top:14px;">
-                    <h3>কোনো ব্র্যান্ড এনগেজমেন্টের তথ্য পাওয়া যায়নি</h3>
-                    <p class="muted">নির্বাচিত সময় ও ফিল্টারে কোনো ব্র্যান্ডের কাজ রেকর্ড হয়নি।</p>
+                    <h3>📭 কোনো এনগেজমেন্ট ডাটা পাওয়া যায়নি</h3>
+                    <p class="muted">নির্বাচিত সময় ও ফিল্টারে কোনো ব্র্যান্ডের কাজ রেকর্ড হয়নি। তারিখ বা ফিল্টার পরিবর্তন করে আবার চেষ্টা করুন।</p>
                 </div>
             <?php else: ?>
-                <div class="table-responsive" style="overflow-x:auto;margin-top:14px;">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Brand</th>
-                                <?php if (isAdmin() && $selectedUserId === 0): ?><th>User</th><?php endif; ?>
-                                <th>Status</th>
-                                <th>Social Profiles Done</th>
-                                <th style="text-align:right;">Completed Time</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($matrixRows as $r): 
+                <?php
+                    // Group rows by date
+                    $dateGroups = [];
+                    foreach ($matrixRows as $r) {
+                        $dateGroups[$r['engagement_date']][] = $r;
+                    }
+                ?>
+                <?php foreach ($dateGroups as $groupDate => $groupRows): ?>
+                    <div class="date-group">
+                        <div class="date-group-header">
+                            <div class="date-group-label">
+                                <span class="date-icon">📅</span>
+                                <?= e(date('d M Y (l)', strtotime($groupDate))) ?>
+                                <span class="date-group-count"><?= count($groupRows) ?> টি ব্র্যান্ড</span>
+                            </div>
+                        </div>
+                        <div class="brand-cards-grid">
+                            <?php foreach ($groupRows as $r):
                                 $brandLinks = $allSocialLinks[$r['brand_id']] ?? [];
                                 $totalLinks = count($brandLinks);
                                 $doneCount = 0;
@@ -585,71 +595,70 @@ if (!function_exists('humanizeTimeline')) {
                                     if (isset($userDoneLinksMap[$k])) $doneCount++;
                                 }
 
-                                $statusPillClass = 'status-pending';
-                                $statusLabel = 'Pending';
+                                // Determine card class and status
+                                $cardClass = 'card-pending';
+                                $statusClass = 'st-pending';
+                                $statusLabel = '⏳ পেন্ডিং';
                                 if ($r['status'] === 'completed') {
-                                    $statusPillClass = 'status-completed';
-                                    $statusLabel = '✓ Completed';
+                                    $cardClass = 'card-completed';
+                                    $statusClass = 'st-completed';
+                                    $statusLabel = '✅ সম্পন্ন';
                                 } elseif ($r['status'] === 'skipped') {
-                                    $statusPillClass = 'status-skipped';
-                                    $statusLabel = '⏭ Skipped';
+                                    $cardClass = 'card-skipped';
+                                    $statusClass = 'st-skipped';
+                                    $statusLabel = '⏭ স্কিপ';
                                 } elseif ($doneCount > 0) {
-                                    $statusPillClass = 'status-pending';
-                                    $statusLabel = "In Progress ({$doneCount}/{$totalLinks})";
+                                    $cardClass = 'card-inprogress';
+                                    $statusClass = 'st-inprogress';
+                                    $statusLabel = "🔄 চলমান ({$doneCount}/{$totalLinks})";
                                 }
                             ?>
-                                <tr>
-                                    <td style="white-space:nowrap;font-size:13px;">
-                                        <strong><?= e(date('d M Y', strtotime($r['engagement_date']))) ?></strong>
-                                    </td>
-                                    <td>
-                                        <div style="font-weight:700;font-size:14px;color:#0f172a;"><?= e($r['brand_name']) ?></div>
-                                        <?php if (!empty($r['notes'])): ?>
-                                            <div class="muted" style="font-size:12px;"><?= e($r['notes']) ?></div>
-                                        <?php endif; ?>
-                                    </td>
-                                    <?php if (isAdmin() && $selectedUserId === 0): ?>
-                                        <td>
-                                            <strong><?= e($r['user_name']) ?></strong>
-                                            <div class="muted" style="font-size:11px;">@<?= e($r['username']) ?></div>
-                                        </td>
+                                <div class="brand-eng-card <?= $cardClass ?>">
+                                    <div class="brand-card-top">
+                                        <div>
+                                            <h3 class="brand-card-name"><?= e($r['brand_name']) ?></h3>
+                                            <?php if (!empty($r['notes'])): ?>
+                                                <div class="brand-card-notes"><?= e($r['notes']) ?></div>
+                                            <?php endif; ?>
+                                            <?php if (isAdmin() && $selectedUserId === 0): ?>
+                                                <div class="brand-card-user">👤 <strong><?= e($r['user_name']) ?></strong> (@<?= e($r['username']) ?>)</div>
+                                            <?php endif; ?>
+                                        </div>
+                                        <span class="brand-card-status <?= $statusClass ?>"><?= $statusLabel ?></span>
+                                    </div>
+
+                                    <?php if ($totalLinks > 0): ?>
+                                        <div class="social-checklist">
+                                            <div class="social-checklist-title">সোশ্যাল লিঙ্ক (<?= $doneCount ?>/<?= $totalLinks ?> সম্পন্ন)</div>
+                                            <?php foreach ($brandLinks as $bl):
+                                                $k = $r['user_id'] . '_' . $r['engagement_date'] . '_' . $bl['id'];
+                                                $isDone = isset($userDoneLinksMap[$k]);
+                                            ?>
+                                                <div class="social-check-item <?= $isDone ? 'is-done' : 'is-pending' ?>">
+                                                    <span class="check-icon"><?= $isDone ? '✓' : '' ?></span>
+                                                    <span class="check-label"><?= e($bl['platform']) ?></span>
+                                                </div>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    <?php else: ?>
+                                        <div class="muted" style="font-size:12px;padding:8px 0;">কোনো সোশ্যাল লিঙ্ক সেট করা নেই</div>
                                     <?php endif; ?>
-                                    <td>
-                                        <span class="status-pill <?= e($statusPillClass) ?>">
-                                            <?= e($statusLabel) ?>
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <?php if ($totalLinks === 0): ?>
-                                            <span class="muted" style="font-size:12px;">No social links configured</span>
-                                        <?php else: ?>
-                                            <div class="platform-matrix-list">
-                                                <?php foreach ($brandLinks as $bl): 
-                                                    $k = $r['user_id'] . '_' . $r['engagement_date'] . '_' . $bl['id'];
-                                                    $isDone = isset($userDoneLinksMap[$k]);
-                                                ?>
-                                                    <span class="platform-matrix-pill <?= $isDone ? 'is-done' : 'is-pending' ?>"
-                                                          title="<?= $isDone ? 'আজ সম্পন্ন হয়েছে' : 'পেন্ডিং' ?>">
-                                                        <?= e($bl['platform']) ?> <?= $isDone ? '✓' : '⏳' ?>
-                                                    </span>
-                                                <?php endforeach; ?>
-                                            </div>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td style="text-align:right;white-space:nowrap;font-size:12.5px;color:var(--muted);">
+
+                                    <div class="brand-card-footer">
+                                        <span class="brand-card-progress"><?= $doneCount ?>/<?= $totalLinks ?> লিঙ্ক</span>
                                         <?php if ($r['completed_at']): ?>
-                                            <strong style="color:#059669;"><?= e(date('h:i A', strtotime($r['completed_at']))) ?></strong>
+                                            <span class="brand-card-time is-done">✅ <?= e(date('h:i A', strtotime($r['completed_at']))) ?> এ সম্পন্ন</span>
                                         <?php elseif ($r['snoozed_until']): ?>
-                                            <span style="color:var(--warning);">Snoozed till <?= e(date('h:i A', strtotime($r['snoozed_until']))) ?></span>
+                                            <span class="brand-card-time is-snoozed">⏱ <?= e(date('h:i A', strtotime($r['snoozed_until']))) ?> পর্যন্ত স্নুজ</span>
                                         <?php else: ?>
-                                            <span class="muted">Not done yet</span>
+                                            <span class="brand-card-time">এখনো সম্পন্ন হয়নি</span>
                                         <?php endif; ?>
-                                    </td>
-                                </tr>
+                                    </div>
+                                </div>
                             <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
             <?php endif; ?>
         </section>
     <?php endif; ?>
@@ -659,77 +668,92 @@ if (!function_exists('humanizeTimeline')) {
         <section class="panel">
             <div class="panel-header-row">
                 <div>
-                    <h2 style="margin:0;">Team Performance Scorecard</h2>
+                    <h2 style="margin:0;">👥 টিম পারফরম্যান্স স্কোরকার্ড</h2>
                     <p class="muted" style="margin:4px 0 0;font-size:13px;">
-                        নির্বাচিত সময়সীমায় প্রত্যেক টিম মেম্বারের পারফরম্যান্স ও কাজের তুলনামূলক চিত্র
+                        নির্বাচিত সময়সীমায় প্রত্যেক টিম মেম্বারের পারফরম্যান্স ও কাজের তুলনামূলক চিত্র
                     </p>
                 </div>
             </div>
 
-            <div class="table-responsive" style="overflow-x:auto;margin-top:14px;">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Team Member</th>
-                            <th>Role</th>
-                            <th style="text-align:center;">Assigned Brands</th>
-                            <th style="text-align:center;">Completed</th>
-                            <th style="width:200px;">Progress</th>
-                            <th style="text-align:center;">Links Engaged</th>
-                            <th style="text-align:center;">Posts Seen</th>
-                            <th>Active Hours</th>
-                            <th style="text-align:right;">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($teamScorecard as $sc): 
-                            $tot = (int)$sc['total_brands'];
-                            $comp = (int)$sc['completed_brands'];
-                            $rate = $tot > 0 ? round(($comp / $tot) * 100, 1) : 0;
-                            $barClass = $rate >= 80 ? 'progress-high' : ($rate >= 50 ? 'progress-mid' : 'progress-low');
-                        ?>
-                            <tr>
-                                <td>
-                                    <div style="font-weight:700;font-size:14px;color:#0f172a;"><?= e($sc['name']) ?></div>
-                                    <div class="muted" style="font-size:11.5px;">@<?= e($sc['username']) ?></div>
-                                </td>
-                                <td>
-                                    <span class="role-badge role-<?= e($sc['role']) ?>"><?= e(strtoupper($sc['role'])) ?></span>
-                                </td>
-                                <td style="text-align:center;font-weight:600;"><?= $tot ?></td>
-                                <td style="text-align:center;font-weight:700;color:#059669;font-size:15px;"><?= $comp ?></td>
-                                <td>
-                                    <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;margin-bottom:2px;">
-                                        <span><?= $rate ?>%</span>
-                                        <span class="muted"><?= $comp ?>/<?= $tot ?></span>
+            <?php if (empty($teamScorecard)): ?>
+                <div class="empty-state" style="padding:40px 20px;margin-top:14px;">
+                    <h3>📭 কোনো টিম মেম্বারের ডাটা পাওয়া যায়নি</h3>
+                    <p class="muted">নির্বাচিত সময়ে কোনো টিম মেম্বারের কাজ রেকর্ড হয়নি।</p>
+                </div>
+            <?php else: ?>
+                <div class="scorecard-grid">
+                    <?php foreach ($teamScorecard as $sc):
+                        $tot = (int)$sc['total_brands'];
+                        $comp = (int)$sc['completed_brands'];
+                        $pend = (int)$sc['pending_brands'];
+                        $skip = (int)$sc['skipped_brands'];
+                        $rate = $tot > 0 ? round(($comp / $tot) * 100, 1) : 0;
+                        $barClass = $rate >= 80 ? 'progress-high' : ($rate >= 50 ? 'progress-mid' : 'progress-low');
+                        $initials = mb_strtoupper(mb_substr($sc['name'], 0, 1, 'UTF-8'), 'UTF-8');
+                    ?>
+                        <div class="scorecard-card">
+                            <div class="scorecard-top">
+                                <div class="scorecard-avatar"><?= e($initials) ?></div>
+                                <div class="scorecard-info">
+                                    <h3 class="scorecard-name"><?= e($sc['name']) ?></h3>
+                                    <div class="scorecard-username">
+                                        @<?= e($sc['username']) ?>
+                                        <span class="role-badge role-<?= e($sc['role']) ?>" style="margin-left:6px;"><?= e(strtoupper($sc['role'])) ?></span>
                                     </div>
-                                    <div class="progress-bar-container">
-                                        <div class="progress-bar-fill <?= $barClass ?>" style="width:<?= min(100, $rate) ?>%;"></div>
+                                </div>
+                            </div>
+
+                            <div class="scorecard-stats">
+                                <div class="scorecard-stat stat-good">
+                                    <div class="scorecard-stat-value"><?= $comp ?></div>
+                                    <div class="scorecard-stat-label">সম্পন্ন</div>
+                                </div>
+                                <div class="scorecard-stat stat-info">
+                                    <div class="scorecard-stat-value"><?= (int)$sc['total_links_done'] ?></div>
+                                    <div class="scorecard-stat-label">লিঙ্ক ভিজিট</div>
+                                </div>
+                                <div class="scorecard-stat stat-warn">
+                                    <div class="scorecard-stat-value"><?= (int)$sc['total_posts_seen'] ?></div>
+                                    <div class="scorecard-stat-label">পোস্ট দেখেছেন</div>
+                                </div>
+                            </div>
+
+                            <div class="scorecard-progress">
+                                <div class="scorecard-progress-header">
+                                    <span class="pct"><?= $rate ?>% সম্পন্ন</span>
+                                    <span class="fraction"><?= $comp ?>/<?= $tot ?> ব্র্যান্ড</span>
+                                </div>
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar-fill <?= $barClass ?>" style="width:<?= min(100, $rate) ?>%;"></div>
+                                </div>
+                                <?php if ($pend > 0 || $skip > 0): ?>
+                                    <div style="display:flex;gap:10px;font-size:11px;margin-top:4px;">
+                                        <?php if ($pend > 0): ?>
+                                            <span style="color:var(--warning);font-weight:600;">⏳ <?= $pend ?> পেন্ডিং</span>
+                                        <?php endif; ?>
+                                        <?php if ($skip > 0): ?>
+                                            <span style="color:var(--muted);font-weight:600;">⏭ <?= $skip ?> স্কিপ</span>
+                                        <?php endif; ?>
                                     </div>
-                                </td>
-                                <td style="text-align:center;font-weight:600;color:var(--primary);font-size:14px;">
-                                    <?= (int)$sc['total_links_done'] ?>
-                                </td>
-                                <td style="text-align:center;font-weight:600;color:#d97706;font-size:14px;">
-                                    <?= (int)$sc['total_posts_seen'] ?>
-                                </td>
-                                <td style="font-size:12px;color:var(--muted);white-space:nowrap;">
+                                <?php endif; ?>
+                            </div>
+
+                            <div class="scorecard-bottom">
+                                <span>
                                     <?php if (!empty($sc['first_active_at'])): ?>
-                                        <?= e(date('h:i A', strtotime($sc['first_active_at']))) ?> – <?= e(date('h:i A', strtotime($sc['last_active_at']))) ?>
+                                        🕒 <?= e(date('h:i A', strtotime($sc['first_active_at']))) ?> – <?= e(date('h:i A', strtotime($sc['last_active_at']))) ?>
                                     <?php else: ?>
-                                        <span class="muted">No activity</span>
+                                        <span class="muted">কোনো অ্যাক্টিভিটি নেই</span>
                                     <?php endif; ?>
-                                </td>
-                                <td style="text-align:right;">
-                                    <a class="btn btn-light btn-sm" href="reports.php?tab=matrix&preset=<?= e($datePreset) ?>&from=<?= e($fromDate) ?>&to=<?= e($toDate) ?>&user_id=<?= (int)$sc['id'] ?>">
-                                        View Matrix ➔
-                                    </a>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
+                                </span>
+                                <a class="btn btn-light btn-sm" href="reports.php?tab=matrix&preset=<?= e($datePreset) ?>&from=<?= e($fromDate) ?>&to=<?= e($toDate) ?>&user_id=<?= (int)$sc['id'] ?>">
+                                    ম্যাট্রিক্স দেখুন ➔
+                                </a>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
         </section>
     <?php endif; ?>
 
@@ -738,44 +762,81 @@ if (!function_exists('humanizeTimeline')) {
         <section class="panel">
             <div class="panel-header-row">
                 <div>
-                    <h2 style="margin:0;">Activity Story Timeline</h2>
+                    <h2 style="margin:0;">🕒 অ্যাক্টিভিটি টাইমলাইন</h2>
                     <p class="muted" style="margin:4px 0 0;font-size:13px;">
-                        ইউজারদের প্রতিটি অ্যাকশনের মানবিকভাবে পাঠযোগ্য টাইমলাইন
+                        ইউজারদের প্রতিটি অ্যাকশনের মানবিকভাবে পাঠযোগ্য টাইমলাইন — তারিখ ও সময় অনুযায়ী
                     </p>
                 </div>
             </div>
 
             <?php if (empty($timelineRows)): ?>
                 <div class="empty-state" style="padding:40px 20px;margin-top:14px;">
-                    <h3>কোনো অ্যাক্টিভিটি টাইমলাইন পাওয়া যায়নি</h3>
-                    <p class="muted">নির্বাচিত সময় ও ফিল্টারে কোনো অ্যাকশন রেকর্ড হয়নি।</p>
+                    <h3>📭 কোনো অ্যাক্টিভিটি পাওয়া যায়নি</h3>
+                    <p class="muted">নির্বাচিত সময় ও ফিল্টারে কোনো অ্যাকশন রেকর্ড হয়নি। তারিখ বা ফিল্টার পরিবর্তন করে আবার চেষ্টা করুন।</p>
                 </div>
             <?php else: ?>
-                <div class="timeline-list">
-                    <?php foreach ($timelineRows as $tl): 
-                        $story = humanizeTimeline($tl);
-                        $createdTs = strtotime($tl['created_at']);
-                        $relativeTime = formatRelativeTime($tl['created_at']);
-                    ?>
-                        <div class="timeline-item">
-                            <div class="timeline-icon-box <?= e($story['icon_class']) ?>">
-                                <?= $story['emoji'] ?>
-                            </div>
-                            <div class="timeline-content">
-                                <div class="timeline-title">
-                                    <?= $story['title'] ?>
-                                </div>
-                                <div class="timeline-meta">
-                                    <span>🕒 <?= e(date('d M Y, h:i A', $createdTs)) ?></span>
-                                    <span>· <?= e($relativeTime) ?></span>
-                                    <?php if (!empty($tl['ip_address'])): ?>
-                                        <span style="opacity:0.6;">(IP: <?= e($tl['ip_address']) ?>)</span>
-                                    <?php endif; ?>
-                                </div>
+                <?php
+                    // Group timeline by date, then by time-of-day
+                    $tlDateGroups = [];
+                    foreach ($timelineRows as $tl) {
+                        $dateKey = date('Y-m-d', strtotime($tl['created_at']));
+                        $hour = (int)date('G', strtotime($tl['created_at']));
+                        if ($hour < 12) {
+                            $period = 'সকাল (Morning)';
+                            $periodIcon = '🌅';
+                        } elseif ($hour < 15) {
+                            $period = 'দুপুর (Noon)';
+                            $periodIcon = '☀️';
+                        } elseif ($hour < 18) {
+                            $period = 'বিকেল (Afternoon)';
+                            $periodIcon = '🌤️';
+                        } else {
+                            $period = 'রাত (Evening)';
+                            $periodIcon = '🌙';
+                        }
+                        $tlDateGroups[$dateKey][$periodIcon . ' ' . $period][] = $tl;
+                    }
+                ?>
+                <?php foreach ($tlDateGroups as $tlDate => $periods): ?>
+                    <div class="timeline-date-group">
+                        <div class="timeline-date-header">
+                            <div class="timeline-date-badge">
+                                📅 <?= e(date('d M Y (l)', strtotime($tlDate))) ?>
                             </div>
                         </div>
-                    <?php endforeach; ?>
-                </div>
+
+                        <?php foreach ($periods as $periodLabel => $periodEntries): ?>
+                            <div class="timeline-time-group">
+                                <div class="timeline-time-label"><?= e($periodLabel) ?></div>
+                                <div class="timeline-list">
+                                    <?php foreach ($periodEntries as $tl):
+                                        $story = humanizeTimeline($tl);
+                                        $createdTs = strtotime($tl['created_at']);
+                                        $relativeTime = formatRelativeTime($tl['created_at']);
+                                    ?>
+                                        <div class="timeline-item">
+                                            <div class="timeline-icon-box <?= e($story['icon_class']) ?>">
+                                                <?= $story['emoji'] ?>
+                                            </div>
+                                            <div class="timeline-content">
+                                                <div class="timeline-title">
+                                                    <?= $story['title'] ?>
+                                                </div>
+                                                <div class="timeline-meta">
+                                                    <span>🕒 <?= e(date('h:i A', $createdTs)) ?></span>
+                                                    <span>· <?= e($relativeTime) ?></span>
+                                                    <?php if (!empty($tl['ip_address'])): ?>
+                                                        <span style="opacity:0.6;">(IP: <?= e($tl['ip_address']) ?>)</span>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endforeach; ?>
             <?php endif; ?>
         </section>
     <?php endif; ?>
