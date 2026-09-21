@@ -99,6 +99,96 @@ function getSettings(PDO $pdo): array
     return $settings;
 }
 
+function recordSocialLinkEngagement(PDO $pdo, int $userId, int $socialLinkId, ?int $brandId = null): array
+{
+    if ($socialLinkId <= 0) {
+        return ['ok' => false, 'error' => 'invalid_link_id'];
+    }
+
+    if ($brandId === null || $brandId <= 0) {
+        $slStmt = $pdo->prepare("SELECT brand_id, platform FROM social_links WHERE id = :sid");
+        $slStmt->execute(['sid' => $socialLinkId]);
+        $slRow = $slStmt->fetch();
+        if (!$slRow) {
+            return ['ok' => false, 'error' => 'social_link_not_found'];
+        }
+        $brandId = (int)$slRow['brand_id'];
+    }
+
+    // Ensure daily_engagement exists for this user and brand today
+    $tStmt = $pdo->prepare("SELECT id, status FROM daily_engagements WHERE brand_id = :bid AND user_id = :uid AND engagement_date = :today");
+    $tStmt->execute(['bid' => $brandId, 'uid' => $userId, 'today' => today()]);
+    $taskRow = $tStmt->fetch();
+    if (!$taskRow) {
+        ensureTodayTasks($pdo, $userId);
+        $tStmt->execute(['bid' => $brandId, 'uid' => $userId, 'today' => today()]);
+        $taskRow = $tStmt->fetch();
+    }
+    if (!$taskRow) {
+        return ['ok' => false, 'error' => 'task_not_found'];
+    }
+
+    $taskId = (int)$taskRow['id'];
+
+    // Insert or update daily_social_engagements
+    $ins = $pdo->prepare("
+        INSERT INTO daily_social_engagements (daily_engagement_id, brand_id, user_id, social_link_id, engagement_date, is_done, done_at)
+        VALUES (:daily_id, :brand_id, :user_id, :social_id, :today, 1, NOW())
+        ON DUPLICATE KEY UPDATE is_done = 1, done_at = NOW()
+    ");
+    $ins->execute([
+        'daily_id' => $taskId,
+        'brand_id' => $brandId,
+        'user_id' => $userId,
+        'social_id' => $socialLinkId,
+        'today' => today(),
+    ]);
+
+    // Count total active social links for this brand
+    $totStmt = $pdo->prepare("SELECT COUNT(*) FROM social_links WHERE brand_id = :bid AND status = 1");
+    $totStmt->execute(['bid' => $brandId]);
+    $totalActive = (int)$totStmt->fetchColumn();
+
+    // Count distinct active links completed today for THIS user
+    $doneStmt = $pdo->prepare("
+        SELECT COUNT(DISTINCT s.id) 
+        FROM social_links s
+        INNER JOIN daily_social_engagements dse ON dse.social_link_id = s.id AND dse.engagement_date = :today AND dse.user_id = :uid
+        WHERE s.brand_id = :bid AND s.status = 1 AND dse.is_done = 1
+    ");
+    $doneStmt->execute(['bid' => $brandId, 'today' => today(), 'uid' => $userId]);
+    $doneCount = (int)$doneStmt->fetchColumn();
+
+    $brandCompleted = false;
+    if ($totalActive > 0 && $doneCount >= $totalActive) {
+        // ALL active social links are completed today!
+        $pdo->prepare("
+            UPDATE daily_engagements 
+            SET like_done = 1, comment_done = 1, share_done = 1, status = 'completed', completed_at = NOW(), snoozed_until = NULL 
+            WHERE id = :id AND user_id = :uid AND engagement_date = :today
+        ")->execute(['id' => $taskId, 'uid' => $userId, 'today' => today()]);
+        $brandCompleted = true;
+    } else {
+        // Not all links completed yet: keep brand as pending
+        $pdo->prepare("
+            UPDATE daily_engagements 
+            SET status = 'pending', completed_at = NULL, snoozed_until = NULL 
+            WHERE id = :id AND user_id = :uid AND engagement_date = :today
+        ")->execute(['id' => $taskId, 'uid' => $userId, 'today' => today()]);
+    }
+
+    return [
+        'ok' => true,
+        'brand_id' => $brandId,
+        'task_id' => $taskId,
+        'social_link_id' => $socialLinkId,
+        'done_count' => $doneCount,
+        'total_count' => $totalActive,
+        'brand_completed' => $brandCompleted
+    ];
+}
+
 require_once __DIR__ . '/auth.php';
 ensureAuthSchema(db());
+
 

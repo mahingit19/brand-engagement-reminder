@@ -78,6 +78,10 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             $ins->execute(['uid' => $userId, 'pid' => $postId]);
 
             $pInfo = $pdo->query("SELECT brand_id, social_link_id, title FROM brand_posts WHERE id = {$postId}")->fetch();
+            if ($pInfo && !empty($pInfo['social_link_id'])) {
+                recordSocialLinkEngagement($pdo, $userId, (int)$pInfo['social_link_id'], (int)$pInfo['brand_id']);
+            }
+
             logUserActivity(
                 $pdo,
                 $userId,
@@ -127,13 +131,16 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
                     $ins->execute(['uid' => $userId, 'pid' => $cid]);
                 }
 
-                // Mark daily_engagements for these brands as completed for THIS user today
+                // Record engagement only for the specific social links of these posts (NOT the whole brand)
                 $inClause = implode(',', $cleanIds);
-                $bStmt = $pdo->query("SELECT DISTINCT brand_id FROM brand_posts WHERE id IN ($inClause)");
-                $bIds = $bStmt->fetchAll(PDO::FETCH_COLUMN);
-                if (!empty($bIds)) {
-                    $inBrands = implode(',', array_map('intval', $bIds));
-                    $pdo->exec("UPDATE daily_engagements SET like_done = 1, comment_done = 1, share_done = 1, status = 'completed', completed_at = NOW() WHERE user_id = {$userId} AND brand_id IN ($inBrands) AND engagement_date = '" . today() . "'");
+                $pStmt = $pdo->query("SELECT id, brand_id, social_link_id FROM brand_posts WHERE id IN ($inClause)");
+                $postsList = $pStmt->fetchAll();
+                foreach ($postsList as $pItem) {
+                    $sId = (int)($pItem['social_link_id'] ?? 0);
+                    $bId = (int)($pItem['brand_id'] ?? 0);
+                    if ($sId > 0) {
+                        recordSocialLinkEngagement($pdo, $userId, $sId, $bId);
+                    }
                 }
 
                 logUserActivity($pdo, $userId, 'batch_posts_seen', null, null, null, "Opened batch posts (" . count($cleanIds) . " posts)");

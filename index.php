@@ -1,6 +1,7 @@
 <?php
-require __DIR__ . '/config.php';
+require_once __DIR__ . '/config.php';
 requireLogin();
+
 $currentUser = currentUser();
 $currentUserId = (int)$currentUser['id'];
 $pdo = db();
