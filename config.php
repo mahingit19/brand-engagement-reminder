@@ -164,7 +164,7 @@ function recordSocialLinkEngagement(PDO $pdo, int $userId, int $socialLinkId, ?i
         // ALL active social links are completed today!
         $pdo->prepare("
             UPDATE daily_engagements 
-            SET like_done = 1, comment_done = 1, share_done = 1, status = 'completed', completed_at = NOW(), snoozed_until = NULL 
+            SET status = 'completed', completed_at = NOW(), snoozed_until = NULL 
             WHERE id = :id AND user_id = :uid AND engagement_date = :today
         ")->execute(['id' => $taskId, 'uid' => $userId, 'today' => today()]);
         $brandCompleted = true;

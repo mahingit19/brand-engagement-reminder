@@ -126,7 +126,7 @@ if ($type === 'link_done' || $type === 'link_toggle') {
     if ($totalActive > 0 && $doneCount >= $totalActive) {
         $pdo->prepare("
             UPDATE daily_engagements 
-            SET like_done = 1, comment_done = 1, share_done = 1, status = 'completed', completed_at = NOW(), snoozed_until = NULL 
+            SET status = 'completed', completed_at = NOW(), snoozed_until = NULL 
             WHERE id = :id AND user_id = :uid AND engagement_date = :today
         ")->execute(['id' => $taskId, 'uid' => $userId, 'today' => today()]);
         $brandCompleted = true;
@@ -190,14 +190,8 @@ if ($taskBrandId <= 0) {
     exit;
 }
 
-if (in_array($type, ['like','comment','share'], true)) {
-    $column = $type . '_done';
-    $pdo->prepare("UPDATE daily_engagements SET {$column} = IF({$column}=1,0,1), snoozed_until=NULL WHERE id=:id AND user_id=:uid AND engagement_date=:today")
-        ->execute(['id'=>$taskId, 'uid'=>$userId, 'today'=>today()]);
-    
-    logUserActivity($pdo, $userId, $type, $taskBrandId, null, null, "Toggled {$type} action");
-} elseif ($type === 'all_done') {
-    $pdo->prepare("UPDATE daily_engagements SET like_done=1, comment_done=1, share_done=1, status='completed', completed_at=NOW(), snoozed_until=NULL WHERE id=:id AND user_id=:uid AND engagement_date=:today")
+if ($type === 'all_done') {
+    $pdo->prepare("UPDATE daily_engagements SET status='completed', completed_at=NOW(), snoozed_until=NULL WHERE id=:id AND user_id=:uid AND engagement_date=:today")
         ->execute(['id'=>$taskId, 'uid'=>$userId, 'today'=>today()]);
 
     $pdo->prepare("
@@ -229,18 +223,6 @@ if (in_array($type, ['like','comment','share'], true)) {
     logUserActivity($pdo, $userId, 'skip', $taskBrandId, null, null, "Skipped brand engagement for today");
 } else {
     http_response_code(422); echo json_encode(['ok'=>false,'message'=>'Unknown action']); exit;
-}
-
-if (in_array($type, ['like','comment','share'], true)) {
-    $stmt = $pdo->prepare("SELECT like_done, comment_done, share_done FROM daily_engagements WHERE id=:id AND user_id=:uid");
-    $stmt->execute(['id'=>$taskId, 'uid'=>$userId]);
-    $row = $stmt->fetch();
-    if ($row && $row['like_done'] && $row['comment_done'] && $row['share_done']) {
-        $pdo->prepare("UPDATE daily_engagements SET status='completed', completed_at=NOW(), snoozed_until=NULL WHERE id=:id AND user_id=:uid")->execute(['id'=>$taskId, 'uid'=>$userId]);
-        logUserActivity($pdo, $userId, 'all_done', $taskBrandId, null, null, "All actions completed for brand");
-    } else {
-        $pdo->prepare("UPDATE daily_engagements SET status='pending', completed_at=NULL WHERE id=:id AND user_id=:uid")->execute(['id'=>$taskId, 'uid'=>$userId]);
-    }
 }
 
 echo json_encode(['ok'=>true]);

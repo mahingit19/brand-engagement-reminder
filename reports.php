@@ -60,10 +60,7 @@ $kpiStmt = $pdo->prepare("
         COUNT(*) AS total_tasks,
         COALESCE(SUM(d.status = 'completed'), 0) AS completed_tasks,
         COALESCE(SUM(d.status = 'pending'), 0) AS pending_tasks,
-        COALESCE(SUM(d.status = 'skipped'), 0) AS skipped_tasks,
-        COALESCE(SUM(d.like_done = 1), 0) AS total_likes,
-        COALESCE(SUM(d.comment_done = 1), 0) AS total_comments,
-        COALESCE(SUM(d.share_done = 1), 0) AS total_shares
+        COALESCE(SUM(d.status = 'skipped'), 0) AS skipped_tasks
     FROM daily_engagements d
     INNER JOIN brands b ON b.id = d.brand_id AND b.status = 1
     WHERE d.engagement_date BETWEEN :from_date AND :to_date {$kpiUserWhere}
@@ -74,9 +71,6 @@ $kpi = $kpiStmt->fetch() ?: [
     'completed_tasks' => 0,
     'pending_tasks' => 0,
     'skipped_tasks' => 0,
-    'total_likes' => 0,
-    'total_comments' => 0,
-    'total_shares' => 0,
 ];
 
 // Total social links engaged in this period
@@ -134,7 +128,7 @@ $matrixWhereSql = implode(' AND ', $matrixWhere);
 
 $matrixStmt = $pdo->prepare("
     SELECT d.id AS task_id, d.brand_id, d.user_id, d.engagement_date, d.status,
-           d.like_done, d.comment_done, d.share_done, d.snoozed_until, d.completed_at,
+           d.snoozed_until, d.completed_at,
            b.name AS brand_name, b.latest_post_url, b.notes,
            u.name AS user_name, u.username
     FROM daily_engagements d
@@ -233,7 +227,7 @@ if (!empty($_GET['export']) && $_GET['export'] === 'csv') {
     fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF)); // UTF-8 BOM
 
     if ($activeTab === 'matrix') {
-        fputcsv($out, ['Date', 'Brand Name', 'User', 'Status', 'Social Links Progress', 'Like', 'Comment', 'Share', 'Completed At']);
+        fputcsv($out, ['Date', 'Brand Name', 'User', 'Status', 'Social Links Progress', 'Completed At']);
         foreach ($matrixRows as $r) {
             $brandLinks = $allSocialLinks[$r['brand_id']] ?? [];
             $doneCount = 0;
@@ -247,9 +241,6 @@ if (!empty($_GET['export']) && $_GET['export'] === 'csv') {
                 $r['user_name'],
                 ucfirst($r['status']),
                 "{$doneCount}/" . count($brandLinks) . " links done",
-                $r['like_done'] ? 'Yes' : 'No',
-                $r['comment_done'] ? 'Yes' : 'No',
-                $r['share_done'] ? 'Yes' : 'No',
                 $r['completed_at'] ?? 'Pending'
             ]);
         }
@@ -503,10 +494,10 @@ if (!function_exists('humanizeTimeline')) {
         </div>
 
         <div class="stat">
-            <span>ম্যানুয়াল অ্যাকশন (Likes / Comments)</span>
-            <strong><?= (int)$kpi['total_likes'] + (int)$kpi['total_comments'] + (int)$kpi['total_shares'] ?></strong>
+            <span>সম্পন্ন ব্র্যান্ড (Completed Brands)</span>
+            <strong style="color:var(--success);"><?= $completedTasksCount ?> <span style="font-size:15px;color:var(--muted);font-weight:600;">/ <?= $totalTasksCount ?></span></strong>
             <small class="muted" style="font-size:12px;">
-                👍 <?= (int)$kpi['total_likes'] ?> লাইক · 💬 <?= (int)$kpi['total_comments'] ?> কমেন্ট · ↗ <?= (int)$kpi['total_shares'] ?> শেয়ার
+                মোট ব্র্যান্ডের মধ্যে সম্পন্ন হয়েছে
             </small>
         </div>
 
@@ -581,7 +572,6 @@ if (!function_exists('humanizeTimeline')) {
                                 <?php if (isAdmin() && $selectedUserId === 0): ?><th>User</th><?php endif; ?>
                                 <th>Status</th>
                                 <th>Social Profiles Done</th>
-                                <th style="text-align:center;">Actions (Like / Comment)</th>
                                 <th style="text-align:right;">Completed Time</th>
                             </tr>
                         </thead>
@@ -645,13 +635,6 @@ if (!function_exists('humanizeTimeline')) {
                                                 <?php endforeach; ?>
                                             </div>
                                         <?php endif; ?>
-                                    </td>
-                                    <td style="text-align:center;">
-                                        <div class="matrix-actions-checklist">
-                                            <span class="matrix-action-chip <?= $r['like_done'] ? 'done' : 'pending' ?>" title="Like">👍 <?= $r['like_done'] ? '✓' : '—' ?></span>
-                                            <span class="matrix-action-chip <?= $r['comment_done'] ? 'done' : 'pending' ?>" title="Comment">💬 <?= $r['comment_done'] ? '✓' : '—' ?></span>
-                                            <span class="matrix-action-chip <?= $r['share_done'] ? 'done' : 'pending' ?>" title="Share">↗ <?= $r['share_done'] ? '✓' : '—' ?></span>
-                                        </div>
                                     </td>
                                     <td style="text-align:right;white-space:nowrap;font-size:12.5px;color:var(--muted);">
                                         <?php if ($r['completed_at']): ?>

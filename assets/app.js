@@ -139,15 +139,11 @@
       return;
     }
 
-    const toggle = e.target.closest('.action-toggle');
     const markAll = e.target.closest('.mark-all');
     const snooze = e.target.closest('.snooze');
     const skip = e.target.closest('.skip');
     try {
-      if (toggle) {
-        await postAction({ task_id: toggle.dataset.task, type: toggle.dataset.action });
-        location.reload();
-      } else if (markAll) {
+      if (markAll) {
         await postAction({ task_id: markAll.dataset.task, type: 'all_done' });
         location.reload();
       } else if (snooze) {

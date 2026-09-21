@@ -301,7 +301,7 @@ if ($pendingCount === 0) {
     <section class="section-head">
         <div>
             <h2>Today's Engagement Queue</h2>
-            <p>Open a post/page, interact manually, then mark the action here.</p>
+            <p>ব্র্যান্ডের সোশ্যাল লিঙ্ক ও পোস্ট ওপেন করে দৈনিক এনগেজমেন্ট সম্পন্ন করুন।</p>
         </div>
         <div class="section-actions">
             <button type="button" id="checkFeedsBtn" class="btn btn-light" title="Check all RSS feeds for new posts right now">📡 Check Feeds Now</button>
@@ -392,12 +392,6 @@ if ($pendingCount === 0) {
                             <?= e($link['platform']) ?> <span><?= $link['is_done'] ? '✓' : '↗' ?></span>
                         </a>
                     <?php endforeach; ?>
-                </div>
-
-                <div class="actions-row">
-                    <button class="action-toggle <?= $task['like_done'] ? 'checked' : '' ?>" data-task="<?= (int)$task['id'] ?>" data-action="like">👍 Like <span><?= $task['like_done'] ? '✓' : '' ?></span></button>
-                    <button class="action-toggle <?= $task['comment_done'] ? 'checked' : '' ?>" data-task="<?= (int)$task['id'] ?>" data-action="comment">💬 Comment <span><?= $task['comment_done'] ? '✓' : '' ?></span></button>
-                    <button class="action-toggle <?= $task['share_done'] ? 'checked' : '' ?>" data-task="<?= (int)$task['id'] ?>" data-action="share">↗ Share <span><?= $task['share_done'] ? '✓' : '' ?></span></button>
                 </div>
 
                 <?php if ($task['status'] === 'pending'): ?>

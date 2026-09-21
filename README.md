@@ -7,8 +7,8 @@ A simple local PHP + MySQL system for reminding you to engage with your office b
 - Add unlimited brands
 - Add multiple social links per brand
 - Optional latest post URL per brand
-- Daily engagement queue
-- Like / Comment / Share checklist
+- Social profile links progress tracking
+- One-click Open All links
 - Mark All Done
 - Snooze 30 minutes / 1 hour
 - Skip for today
@@ -59,11 +59,11 @@ The dashboard checks the server periodically. During the configured time window 
 - it is not currently snoozed,
 - the configured global reminder gap has passed since the previous reminder.
 
-Only one brand reminder is emitted per configured interval, so reminders are spread across the day. Unreminded brands are preferred first; after that, the least-recently-reminded pending brand is selected. When Like, Comment and Share are all marked, the brand is completed for that day and stops reminding.
+Only one brand reminder is emitted per configured interval, so reminders are spread across the day. Unreminded brands are preferred first; after that, the least-recently-reminded pending brand is selected. When all active social profile links are visited/completed or marked done, the brand is completed for that day and stops reminding.
 
 ## Important limitation
 
-This MVP intentionally does **not** automatically like, comment or share on social media. It also does not automatically read whether you actually interacted on Facebook/LinkedIn/etc. You manually mark the actions in the dashboard after doing them.
+This MVP intentionally does not automatically interact on social media accounts directly. When you open a profile link or post, the system records that you visited and engaged with that brand's profile.
 
 Browser notifications work while the dashboard is open. For reminders when the browser is completely closed, add a Windows Task Scheduler / Telegram / Slack notification worker in a later version.
 
